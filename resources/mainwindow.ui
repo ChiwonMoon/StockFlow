@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ui version="4.0">
+	<class>MainWindow</class>
+	<widget class="QMainWindow" name="MainWindow">
+		<property name="windowTitle">
+			<string>PortfolioApp</string>
+		</property>
+		<widget class="QWidget" name="centralwidget"/>
+	</widget>
+	<resources/>
+	<connections/>
+</ui>
