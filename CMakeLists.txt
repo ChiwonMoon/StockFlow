@@ -23,3 +23,6 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 add_subdirectory(src/core)
 add_subdirectory(src/ui)
 add_subdirectory(src/app) # 실행 파일
+
+file(COPY "${CMAKE_SOURCE_DIR}/kospi_code.mst" DESTINATION "${CMAKE_BINARY_DIR}/src/app")
+file(COPY "${CMAKE_SOURCE_DIR}/kosdaq_code.mst" DESTINATION "${CMAKE_BINARY_DIR}/src/app")

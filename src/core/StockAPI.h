@@ -11,20 +11,21 @@ class StockAPI : public QObject
 
 public:
 	explicit StockAPI(QObject* parent = nullptr);
+	virtual ~StockAPI();
 
 	// 주식 데이터 요청 함수
-	void fetchStock(const QString& symbol);
+	virtual void fetchStock(const QString& symbol) = 0;
+	virtual void fetchLogo(const QString& symbol) = 0;
 
 signals:
 	// 데이터를 다 받으면
 	void dataReceived(const StockData& data);
-	// 에러가 나면
-	void errorOccurred(QString message);
+	void logoReceived(const QString& symbol, const QPixmap& logo);
+
+protected:
+	QNetworkAccessManager* manager;	// 통신을 담당하는 qt 객체
+	void downloadLogoFromUrl(const QString& symbol, const QString& url);
 
 private slots:
-	// 네트워크 응답이 오면 처리
-	void onResult(QNetworkReply* reply);
-
-private:
-	QNetworkAccessManager* manager;	// 통신을 담당하는 qt 객체
+	void onGenericLogoDownloaded();
 };

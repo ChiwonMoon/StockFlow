@@ -6,7 +6,24 @@
 
 namespace Config {
     // 여기에 Finnhub에서 발급받은 API 키를 입력하세요.
-    const QString API_KEY = "YOUR_API_KEY_HERE"; 
+    / ==========================================
+    // 🇺🇸 미국 주식 (Finnhub) 설정
+    // ==========================================
+    // 기존 API_KEY -> FINNHUB_API_KEY로 명확하게 변경
+    const QString FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
+    const QString FINNHUB_API_KEY = "여기에_FINNHUB_키를_입력하세요"; 
+
+
+    // ==========================================
+    // 🇰🇷 한국 주식 (한국투자증권 KIS - 모의투자) 설정
+    // ==========================================
+    // ※ 주의: 실전투자가 아닌 '모의투자(Virtual Trading)' 서버 주소입니다.
+    // (포트 번호가 29443임에 주의하세요)
+    const QString KIS_BASE_URL = "https://openapivts.koreainvestment.com:29443";
+
+    // 한국투자증권 개발자 센터(모의투자)에서 발급받은 키를 입력하세요.
+    const QString KIS_APP_KEY = "여기에_KIS_APP_KEY_입력";
     
-    const QString BASE_URL = "https://finnhub.io/api/v1";
+    // Secret Key는 매우 깁니다. 줄바꿈 없이 한 줄로 넣어야 합니다.
+    const QString KIS_APP_SECRET = "여기에_KIS_APP_SECRET_입력";
 }

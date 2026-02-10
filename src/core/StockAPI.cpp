@@ -1,83 +1,51 @@
-#include "StockAPI.h"
 #include "Config.h"
-#include <QJsonDocument>
-#include <QJsonObject.h>
-#include <QUrlQuery>
-#include <QDebug>
+#include "StockAPI.h"
+#include "NetworkUtils.h"
 
-StockAPI::StockAPI(QObject* parent)
-	: QObject(parent)
+StockAPI::StockAPI(QObject* parent)	: QObject(parent)
 {
 	// 통신 관리자 생성
 	manager = new QNetworkAccessManager(this);
 }
 
-void StockAPI::fetchStock(const QString& symbol)
+StockAPI::~StockAPI()
 {
-	// URL
-	QUrl url(Config::BASE_URL + "/quote");
-
-	QUrlQuery query;
-	query.addQueryItem("symbol", symbol);
-	query.addQueryItem("token", Config::API_KEY);
-	url.setQuery(query);
-
-	// 요청
-	QNetworkRequest request(url);
-	QNetworkReply* reply = manager->get(request);
-
-	// 응답
-	connect
-	(
-		reply, 
-		&QNetworkReply::finished,
-		[this, reply]() {
-			this->onResult(reply);
-	});
-
-	qDebug() << "Requesting stock data for:" << symbol;
+	if (manager)
+	{
+		delete manager;
+		manager = nullptr;
+	}
 }
 
-void StockAPI::onResult(QNetworkReply* reply)
+void StockAPI::downloadLogoFromUrl(const QString& symbol, const QString& url)
 {
-	// 메모리 해제 예약
-	reply->deleteLater();
+	QNetworkRequest request((QUrl(url)));
+	QNetworkReply* reply = manager->get(request);
+	reply->setProperty("TargetSymbol", symbol);
+	NetworkUtils::addTimeOut(reply, 10000);
 
-	// 에러체크
+	connect(reply, &QNetworkReply::finished, this, &StockAPI::onGenericLogoDownloaded);
+}
+
+void StockAPI::onGenericLogoDownloaded()
+{
+	QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
+	if (!reply) return;
+
+	reply->deleteLater(); // 메모리 해제 예약
+
 	if (reply->error() != QNetworkReply::NoError)
 	{
-		qDebug() << "Network Error:" << reply->errorString();
-		emit errorOccurred(reply->errorString());
+		qDebug() << "Logo Download Error:" << reply->errorString();
 		return;
 	}
 
-	// 데이터 읽기
-	QByteArray responseData = reply->readAll();
-
-	// JSON 파싱
-	QJsonDocument jsonDoc = QJsonDocument::fromJson(responseData);
-	QJsonObject jsonObj = jsonDoc.object();
-
-	if (!jsonObj.contains("c"))
+	// 데이터 -> 이미지 변환
+	QByteArray data = reply->readAll();
+	QPixmap logo;
+	if (logo.loadFromData(data))
 	{
-		qDebug() << "Invalid Data format";
-		return;
+		QString symbol = reply->property("TargetSymbol").toString();
+		emit logoReceived(symbol, logo);
 	}
-
-	// 데이터를 구조체에 담기
-	StockData data;
-
-	data.currentPrice = jsonObj["c"].toDouble();
-	data.highPrice = jsonObj["h"].toDouble();
-	data.lowPrice = jsonObj["l"].toDouble();
-	data.openPrice = jsonObj["o"].toDouble();
-	data.prevClose = jsonObj["pc"].toDouble();
-
-	// 무료 API는 종목명 x
-	data.name = "Unknown";
-
-	qDebug() << "Data Received! Price:" << data.currentPrice;
-
-	// UI
-	emit dataReceived(data);
 }

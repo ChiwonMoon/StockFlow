@@ -6,7 +6,11 @@ add_library(stockflow_ui
         mainwindow.h
         mainwindow.cpp
         mainwindow.ui
-)
+        StockTableModel.h
+        StockTableModel.cpp
+        StockItemDelegate.h
+        StockItemDelegate.cpp
+ )
 
 # Qt ¿¬°á
 target_link_libraries(stockflow_ui
