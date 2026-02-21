@@ -5,8 +5,8 @@
 ![CMake](https://img.shields.io/badge/CMake-3.24+-064f8c.svg?style=flat&logo=cmake)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**StockFlow**는 C++과 Qt 6를 사용하여 개발된 고성능 **실시간 주식 시세 대시보드(Real-time Stock Dashboard)** 애플리케이션입니다.
-Finnhub API를 활용하여 실시간 주가 데이터를 수신하고, 이를 효율적인 Model/View 패턴으로 시각화하는 것을 목표로 합니다.
+**StockFlow**는 C++과 Qt 6를 사용하여 개발된 **실시간 주식 데이터 시각화 및 비동기 처리 데스크톱** 애플리케이션입니다.
+한국투자증권(KIS) API와 Finnhub API를 연동하여 국내/해외 주식 데이터를 수집하고, 이를 효율적인 Model/View 패턴으로 시각화하는 것을 목표로 합니다.
 
 ## 🎯 프로젝트 목표 (Project Goal)
 - **Modern C++ & Qt6:** 최신 C++ 표준(C++20)과 Qt 6 프레임워크 활용 능력 증명
@@ -19,8 +19,10 @@ Finnhub API를 활용하여 실시간 주가 데이터를 수신하고, 이를 �
 - **Framework:** Qt 6 (Widgets Module)
 - **Build System:** CMake
 - **Version Control:** Git & GitHub
-- **External Library:** - [Finnhub API](https://finnhub.io/) (주식 데이터 제공)
-    - (추후 추가 예정: QCustomPlot 등)
+- **External Library:**
+    - Finnhub API: 해외(미국) 주식 시세 데이터
+    - 한국투자증권(KIS) OpenAPI: 국내 주식 시세 데이터 및 OAuth2 인증
+    - AlphaSquare API: 종목 로고 이미지 파싱
 
 ## 📂 프로젝트 구조 (Architecture)
 이 프로젝트는 **관심사의 분리(Separation of Concerns)** 원칙에 따라 모듈화되어 있습니다.
@@ -28,8 +30,11 @@ Finnhub API를 활용하여 실시간 주가 데이터를 수신하고, 이를 �
 ```text
 StockFlow/
 ├── src/
-│   ├── app/      # 실행 파일 진입점 (Main Entry)
-│   ├── core/     # 데이터 모델, 네트워크 통신, 비즈니스 로직 (UI 의존성 없음)
-│   └── ui/       # 화면 디자인(.ui), 위젯 코드 (View 계층)
-├── CMakeLists.txt      # 최상위 빌드 설정
-└── CMakePresets.json   # 멀티 플랫폼 빌드 및 경로 설정
+│   ├── app/          # Main Entry (실행 파일 진입점)
+│   ├── core/         # Business Logic & Data Layer
+│   │   ├── api/      # API 통신 (KisAPI, FinnhubAPI 등)
+│   │   ├── model/    # Custom Table Model (StockTableModel 등)
+│   │   └── utils/    # JSON 파싱, Network TimeOut 처리 등
+│   └── ui/           # View Layer (MainWindow, Delegate 등)
+├── CMakeLists.txt    # 최상위 빌드 설정
+└── CMakePresets.json # 멀티 플랫폼 빌드 및 경로 설정
