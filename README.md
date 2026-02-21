@@ -5,7 +5,7 @@
 ![CMake](https://img.shields.io/badge/CMake-3.24+-064f8c.svg?style=flat&logo=cmake)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**StockFlow**는 C++과 Qt 6를 사용하여 개발된 **실시간 주식 데이터 시각화 및 비동기 처리 데스크톱** 애플리케이션입니다.
+**StockFlow**는 C++과 Qt 6를 사용하여 개발된 **실시간 주식 데이터 시각화 및 비동기 처리 데스크톱 애플리케이션** 입니다.
 한국투자증권(KIS) API와 Finnhub API를 연동하여 국내/해외 주식 데이터를 수집하고, 이를 효율적인 Model/View 패턴으로 시각화하는 것을 목표로 합니다.
 
 ## 🎯 프로젝트 목표 (Project Goal)
