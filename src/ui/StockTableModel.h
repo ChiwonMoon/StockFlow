@@ -21,7 +21,7 @@ public:
 	void setStockData(const std::vector<StockData>& data);
 	void addStockData(const StockData& data);
 	void clear();
-	void updataOrInsert(const StockData& data);
+	void updateOrInsert(const StockData& data);
 	void updateLogo(const QString& symbol, const QPixmap& logo);
 
 	bool isPriceChanged(int row) const;

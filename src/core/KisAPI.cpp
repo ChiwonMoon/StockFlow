@@ -67,7 +67,7 @@ void KisAPI::onAuthFinished(QNetworkReply* reply)
     // 현재 시간 + 유효기간 = 만료 시간 계산
     QDateTime expiryTime = QDateTime::currentDateTime().addSecs(expiresIn);
 
-    // ★★★ 3. 파일에 저장!
+    // 파일에 저장
     saveToken(m_accessToken, expiryTime);
 
     qDebug() << "KIS Login Success! Token acquired.";
@@ -178,14 +178,14 @@ void KisAPI::onLogoDownloaded(QNetworkReply* reply)
 void KisAPI::saveToken(const QString& token, const QDateTime& expiry)
 {
     // 윈도우 레지스트리나 ini 파일에 자동 저장됨
-    QSettings settings("MyCompany", "StockFlow");
+    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
     settings.setValue("kis_token", token);
     settings.setValue("kis_expiry", expiry);
 }
 
 bool KisAPI::loadToken()
 {
-    QSettings settings("MyCompany", "StockFlow");
+    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
 
     // 저장된 게 없으면 실패
     if (!settings.contains("kis_token")) return false;

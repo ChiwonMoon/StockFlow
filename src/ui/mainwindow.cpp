@@ -3,6 +3,7 @@
 #include "StockItemDelegate.h"
 #include "core/FinnhubAPI.h"
 #include "core/KisAPI.h"
+#include "core/Config.h"
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QPushButton>
@@ -11,20 +12,23 @@
 #include <QCompleter>
 #include <QStringListModel>
 #include <QMenu>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
 
+    // 초기설정
     ui->editSearch->installEventFilter(this);
     ui->editSearch->setEnabled(false);
     ui->btnSearch->setEnabled(false);
-    ui->editSearch->setPlaceholderText("데이터 로딩 중... 잠시만 기다려주세요 ⏳");
+    ui->editSearch->setPlaceholderText("데이터 로딩 중... 잠시만 기다려주세요");
 
+    // 모델 및 테이블 설정
     m_stockModel = new StockTableModel(this);
     ui->tableView->setModel(m_stockModel);
-    ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ui->tableView->setContextMenuPolicy(Qt::CustomContextMenu); // 우클릭메뉴
+    ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);  // 화면 너비에 맞게 늘리기
+    ui->tableView->setContextMenuPolicy(Qt::CustomContextMenu); // 우클릭메뉴 활성화
 
     StockItemDelegate* delegate = new StockItemDelegate(this);
     ui->tableView->setItemDelegate(delegate);
@@ -35,33 +39,34 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
     m_usApi = new FinnhubAPI(this);
     m_krApi = new KisAPI(this);
 
+    // 미국 주식 심볼 전체 가져오기
     m_usApi->fetchAllUSSymblos();
 
-    // 버튼 클릭 시
+    // 버튼 및 입력
     ui->btnRefresh->setShortcut(Qt::Key_F5);
     connect(ui->btnRefresh, &QPushButton::clicked, this, &MainWindow::onRefreshClicked);
     connect(ui->editSearch, &QLineEdit::returnPressed, ui->btnSearch, &QPushButton::click);
     connect(ui->btnSearch, &QPushButton::clicked, this, &MainWindow::onSearchClicked);
     connect(ui->tableView, &QTableView::customContextMenuRequested, this, &MainWindow::onTableContextMenu);
-    // 데이터 도착 시
-    connect(m_usApi, &StockAPI::dataReceived, this, &MainWindow::updataUI);
-    connect(m_krApi, &KisAPI::dataReceived, this, &MainWindow::updataUI);
-    // 로고
-    connect(m_usApi, &StockAPI::logoReceived, this, 
-        [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); }
-    );
-    connect(m_krApi, &StockAPI::logoReceived, this,
-        [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); }
-    );
-    // 한국 로그인 토큰 발급
-    connect(m_krApi, &KisAPI::authenticated, this, [this]() { this->onRefreshClicked(); }
-    );
 
+    // 데이터 수신
+    connect(m_usApi, &StockAPI::dataReceived, this, &MainWindow::updateUI);
+    connect(m_krApi, &KisAPI::dataReceived, this, &MainWindow::updateUI);
+
+    // 로고
+    connect(m_usApi, &StockAPI::logoReceived, this,
+        [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); });
+    connect(m_krApi, &StockAPI::logoReceived, this,
+        [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); });
+
+    // 한국투자증권 로그인 토큰 발급
+    connect(m_krApi, &KisAPI::authenticated, this, [this]() { this->onRefreshClicked(); });
     m_krApi->authenticate();
+
     // 자동 갱신
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &MainWindow::onRefreshClicked);
-    connect(m_timer, &QTimer::timeout, []() { qDebug() << "time out"; });
+    connect(m_timer, &QTimer::timeout, []() { qDebug() << "Auto refresh time out"; });
     m_timer->start(10000);
 
     // 검색
@@ -78,25 +83,31 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 
 MainWindow::~MainWindow()
 {
+    // 앱 종료 직전에 현재 테이블의 모든 심볼 저장
+    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
+    settings.setValue(Config::KEY_FAVORITES, m_stockModel->getAllSymbols());
     delete ui;
 }
 
-void MainWindow::updataUI(const StockData& data)
+void MainWindow::updateUI(const StockData& data)
 {
-    m_stockModel->updataOrInsert(data);
+    m_stockModel->updateOrInsert(data);
 }
 
 void MainWindow::onRefreshClicked()
 {
-    // 버튼 누르면 데이터 + 로고 요청
     QStringList symbols = m_stockModel->getAllSymbols();
-    if(symbols.isEmpty())
-        symbols = { "AAPL", "GOOGL", "NVDA" , "005930", "000660", "005380"};
+    if (symbols.isEmpty())
+    {
+        QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
+        symbols = settings.value(Config::KEY_FAVORITES).toStringList();
+        if (symbols.isEmpty())
+            symbols = { "AAPL", "GOOGL", "NVDA" , "005930", "000660", "005380" };
+    }
     
+    QRegularExpression re("^[0-9]{6}$");    // 숫자 6자리 (한국 종목 패턴)
     for (const QString& sym : symbols)
     {
-        QRegularExpression re("^[0-9]{6}$");
-
         if (re.match(sym).hasMatch())
         {
             m_krApi->fetchStock(sym);
@@ -104,8 +115,8 @@ void MainWindow::onRefreshClicked()
         }
         else
         {
-            m_usApi->fetchStock(sym); // 가격 요청
-            m_usApi->fetchLogo(sym);  // 로고 요청 (비동기라 순서 상관 없음)
+            m_usApi->fetchStock(sym);
+            m_usApi->fetchLogo(sym);
         }
     }
 }
@@ -127,14 +138,17 @@ void MainWindow::onSearchClicked()
         targetSymbol = match.captured(1);
     }
     else {
-        // 2. 괄호가 없다면?
+        // 괄호가 없다면
         targetSymbol = targetSymbol.toUpper();
+        QString name = StockCodeMap::getName(targetSymbol);
+        QString code = StockCodeMap::getCodeByName(name);
 
-        // 혹시 한글 이름인가? -> 코드로 변환 시도
-        QString code = StockCodeMap::getCodeByName(targetSymbol);
-        if (!code.isEmpty())
+        if (targetSymbol != code)
         {
-            targetSymbol = code;
+            if (code == "없음")
+                return;
+            if (!code.isEmpty())
+                targetSymbol = code;
         }
     }
 
@@ -156,7 +170,7 @@ void MainWindow::onSearchClicked()
 
 void MainWindow::onSearchTextEdited(const QString& text)
 {
-    m_pendingText.clear();
+    m_pendingText = text;
     m_debounceTimer->start();
     qDebug() << "검색타이머";
 }
@@ -176,20 +190,19 @@ void MainWindow::onTableContextMenu(const QPoint& pos)
     {
         int row = index.row();
 
-        // 5. 모델에서 삭제
+        // 모델에서 삭제
         m_stockModel->removeRow(row);
     }
 }
 
 void MainWindow::updateSearchCompleter()
 {
-    //QStringList wordList = StockCodeMap::getAllSearchKeywords();
-    //QCompleter* completer = new QCompleter(wordList, this);
+    // 검색어 모델 연결
     QCompleter* completer = new QCompleter(m_searchModel, this);
     completer->setCaseSensitivity(Qt::CaseInsensitive); // 대소문자 구분x
     completer->setCompletionMode(QCompleter::UnfilteredPopupCompletion);
-    ui->editSearch->setCompleter(completer);
 
+    ui->editSearch->setCompleter(completer);
     ui->editSearch->setEnabled(true);
     ui->btnSearch->setEnabled(true);
     ui->editSearch->setPlaceholderText("종목명 또는 코드 검색");
@@ -198,9 +211,8 @@ void MainWindow::updateSearchCompleter()
 
 void MainWindow::performSearch()
 {
-    QString text;
-    if (m_pendingText.isEmpty())
-        m_pendingText = ui->editSearch->text();
+    QString text = m_pendingText.isEmpty() ? ui->editSearch->text() : m_pendingText;
+    if (text.trimmed().isEmpty()) return;
 
     QStringList filteredList = StockCodeMap::searchKeywords(m_pendingText);
     m_searchModel->setStringList(filteredList);
@@ -216,7 +228,7 @@ void MainWindow::performSearch()
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
-    // 검색창 입력
+    // 한글 입력 처리
     if (obj == ui->editSearch && event->type() == QEvent::InputMethod)
     {
         QInputMethodEvent* imeEvent = static_cast<QInputMethodEvent*>(event);
@@ -231,12 +243,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 
         // 타이머 리셋
         m_debounceTimer->start();
-        qDebug() << "한글검색타이머시작";
+        qDebug() << "한글 입력 감지:" << m_pendingText;
 
         // 주의: return false를 해야 QLineEdit 본체도 이벤트를 받아서 글자를 화면에 그립니다.
         return false;
     }
 
-    // 그 외 다른 이벤트는 건드리지 않고 통과
     return QMainWindow::eventFilter(obj, event);
 }

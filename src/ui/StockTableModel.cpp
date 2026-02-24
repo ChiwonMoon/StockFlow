@@ -2,10 +2,8 @@
 #include <QColor>
 #include <QLocale>
 
-StockTableModel::StockTableModel(QObject* parent)
-	: QAbstractTableModel(parent)
+StockTableModel::StockTableModel(QObject* parent) : QAbstractTableModel(parent)
 {
-
 }
 
 int StockTableModel::rowCount(const QModelIndex& parent) const
@@ -64,19 +62,19 @@ QVariant StockTableModel::data(const QModelIndex& index, int role) const
         case Price:
             return formatNumber(stock.currentPrice);
         case Change:
+        {
             double change = stock.getChangePercentage();
             return QString("%1%2%").arg(change > 0 ? "+" : "").arg(change, 0, 'f', 2);
         }
+        }
     }
+    // 이미지 표시 (DecorationRole - 로고)
     else if (role == Qt::DecorationRole)
     {
         // Symbol 컬럼(0번 열)에만 이미지를 띄웁니다.
-        if (index.column() == Symbol)
+        if (index.column() == Symbol && !stock.logo.isNull())
         {
-            // 로고가 비어있지 않다면 리턴
-            if (!stock.logo.isNull()) {
-                return stock.logo;
-            }
+            return stock.logo;
         }
     }
     // 글자 색상 입히기 (ForegroundRole)
@@ -87,7 +85,6 @@ QVariant StockTableModel::data(const QModelIndex& index, int role) const
             double change = stock.getChangePercentage();
             if (change > 0) return QColor(Qt::red);      // 상승: 빨강
             else if (change < 0) return QColor(Qt::blue); // 하락: 파랑
-            // (미국 주식은 보통 상승이 초록, 하락이 빨강이지만 한국식으로 맞춤)
         }
     }
     // 텍스트 정렬 (TextAlignmentRole)
@@ -102,7 +99,7 @@ QVariant StockTableModel::data(const QModelIndex& index, int role) const
 
 void StockTableModel::setStockData(const std::vector<StockData>&data)
 {
-    beginResetModel();  // ui 알림
+    beginResetModel();
     m_data = data;
     endResetModel();
 }
@@ -123,7 +120,7 @@ void StockTableModel::clear()
     endResetModel();
 }
 
-void StockTableModel::updataOrInsert(const StockData& data)
+void StockTableModel::updateOrInsert(const StockData& data)
 {
     for (int i = 0; i < m_data.size(); ++i)
     {
@@ -132,17 +129,18 @@ void StockTableModel::updataOrInsert(const StockData& data)
         {
             // 로고 유지
             QPixmap existingLogo = m_data[i].logo;
-            // 직전가 비교
+            // 이전가격 저장
             double oldPrice = m_data[i].currentPrice;
 
+            // 데이터 갱신
             m_data[i] = data;
+            // 이전가격 복구
             m_data[i].previousPrice = oldPrice;
 
             if (data.logo.isNull() && !existingLogo.isNull())
-            {
                 m_data[i].logo = existingLogo;
-            }
 
+            // 업데이트 알림
             QModelIndex topLeft = index(i, 0);
             QModelIndex bottomRight = index(i, ColumnCount - 1);
             emit dataChanged(topLeft, bottomRight);
@@ -159,9 +157,10 @@ void StockTableModel::updateLogo(const QString& symbol, const QPixmap& logo)
     {
         if (m_data[i].symbol == symbol)
         {
-            m_data[i].logo = logo.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation); // 크기 24x24로 조절
+            // 크기 24x24로 조절
+            m_data[i].logo = logo.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-            // 다시 그림
+            // 업데이트 알림
             QModelIndex idx = index(i, 0);
             emit dataChanged(idx, idx, { Qt::DecorationRole });
             return;
@@ -188,15 +187,5 @@ QStringList StockTableModel::getAllSymbols() const
 QString StockTableModel::formatNumber(double value) const
 {
     // 정수인지 확인 (한국 주식은 보통 소수점이 없음)
-    // 예: 74500.0 == 74500 (True)
-    if (value == (int)value)
-    {
-        // 소수점 0자리 (예: 74,500)
-        return QLocale().toString(value, 'f', 0);
-    }
-    else
-    {
-        // 소수점 2자리 (예: 185.50)
-        return QLocale().toString(value, 'f', 2);
-    }
+    return QLocale::system().toString(value, 'f', (value == (int)value) ? 0 : 2);
 }

@@ -23,7 +23,7 @@ public:
 
 private slots:
     void onRefreshClicked();
-    void updataUI(const StockData& data);
+    void updateUI(const StockData& data);
     void onSearchClicked();
     void onSearchTextEdited(const QString &text);
     void onTableContextMenu(const QPoint& pos);
