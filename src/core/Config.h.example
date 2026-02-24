@@ -26,4 +26,9 @@ namespace Config {
     
     // Secret Key는 매우 깁니다. 줄바꿈 없이 한 줄로 넣어야 합니다.
     const QString KIS_APP_SECRET = "여기에_KIS_APP_SECRET_입력";
+
+    // settings
+	static const char* SETTINGS_APP = "StockFlow";
+	static const char* SETTINGS_COMPANY = "MyCompany";
+	static const char* KEY_FAVORITES = "favorite_symbols";
 }
