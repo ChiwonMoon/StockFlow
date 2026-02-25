@@ -38,8 +38,7 @@ StockFlow/
 │   └── ui/           # View Layer (MainWindow, Delegate 등)
 ├── CMakeLists.txt    # 최상위 빌드 설정
 └── CMakePresets.json # 멀티 플랫폼 빌드 및 경로 설정
+```
 
-![Animation](https://github.com/user-attachments/assets/2b1e2405-f44e-4c5b-8002-c63465ae8c99)
-![Animation](https://github.com/user-attachments/assets/2b1e2405-f44e-4c5b-8002-c63465ae8c99)
-
-
+## 🔍 검색 및 자동완성 데모
+https://github.com/user-attachments/assets/2b1e2405-f44e-4c5b-8002-c63465ae8c99
