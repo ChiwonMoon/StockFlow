@@ -85,7 +85,7 @@ void MainWindow::setupConnections()
         [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); });
 
     // 한국투자증권 로그인 토큰 발급
-    connect(m_krApi, &KisAPI::authenticated, this, &MainWindow::onInitialReady);
+    connect(m_krApi, &KisAPI::authenticated, this, [this]() { this->onInitialReady(); });
 }
 
 void MainWindow::setupTimers()

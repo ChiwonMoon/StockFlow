@@ -21,6 +21,16 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
+private:
+    void setupUiState();
+    void setupTable();
+    void createApis();
+    void setupConnections();
+    void setupTimers();
+    void setupSearch();
+    void startServices();
+    void onInitialReady();
+
 private slots:
     void onRefreshClicked();
     void updateUI(const StockData& data);
@@ -38,6 +48,7 @@ private:
     QStringListModel* m_searchModel;
     QTimer* m_debounceTimer;            // 검색지연타이머
     QString m_pendingText;
+    QString m_lastSearchText;
 
     void updateSearchCompleter();
     void performSearch();
