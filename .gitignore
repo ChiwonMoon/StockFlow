@@ -15,6 +15,10 @@ bin/
 *.user
 *.suo
 *.ipch
+enc_temp_folder/
+*.enc
+temp/
+temp.*
 
 # CMake 임시 파일 무시
 CMakeCache.txt
