@@ -26,6 +26,7 @@ public:
 
 	bool isPriceChanged(int row) const;
 	QStringList getAllSymbols() const;
+	bool hasLogo(const QString& symbol) const;
 
 	enum Column
 	{

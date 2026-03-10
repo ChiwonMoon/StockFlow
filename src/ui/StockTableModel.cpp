@@ -184,6 +184,17 @@ QStringList StockTableModel::getAllSymbols() const
     return symbols;
 }
 
+bool StockTableModel::hasLogo(const QString& symbol) const
+{
+    for (const auto& stock : m_data)
+    {
+        if (stock.symbol == symbol)
+            return !stock.logo.isNull();
+    }
+
+    return false;
+}
+
 QString StockTableModel::formatNumber(double value) const
 {
     // 정수인지 확인 (한국 주식은 보통 소수점이 없음)

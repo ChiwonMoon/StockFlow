@@ -119,18 +119,6 @@ void MainWindow::startServices()
 
 void MainWindow::onInitialReady()
 {
-    onRefreshClicked();
-    // 자동갱신타이머
-    m_timer->start(10000);
-}
-
-void MainWindow::updateUI(const StockData& data)
-{
-    m_stockModel->updateOrInsert(data);
-}
-
-void MainWindow::onRefreshClicked()
-{
     QStringList symbols = m_stockModel->getAllSymbols();
     if (symbols.isEmpty())
     {
@@ -138,9 +126,29 @@ void MainWindow::onRefreshClicked()
         symbols = settings.value(Config::KEY_FAVORITES).toStringList();
         if (symbols.isEmpty())
             symbols = { "AAPL", "GOOGL", "NVDA" , "005930", "000660", "005380" };
+    }
 
-        for (const QString& sym : symbols)
-            requestLogo(sym);
+    for (const QString& sym : symbols)
+        requestStock(sym);
+
+    // 자동갱신타이머
+    m_timer->start(10000);
+}
+
+void MainWindow::updateUI(const StockData& data)
+{
+    m_stockModel->updateOrInsert(data);
+
+    if (!m_stockModel->hasLogo(data.symbol))
+        requestLogo(data.symbol);
+}
+
+void MainWindow::onRefreshClicked()
+{
+    QStringList symbols = m_stockModel->getAllSymbols();
+    if (symbols.isEmpty())
+    {
+        return;
     }
     
     for (const QString& sym : symbols)
@@ -178,7 +186,6 @@ void MainWindow::onSearchClicked()
         }
     }
 
-    requestLogo(targetSymbol);
     requestStock(targetSymbol);
 
     ui->editSearch->clear();
