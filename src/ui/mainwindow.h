@@ -5,6 +5,7 @@
 #include "StockTableModel.h"
 #include "core/KisAPI.h"
 #include "core/FinnhubAPI.h"
+#include "core/StartupCoordinator.h"
 #include <QStringListModel>
 #include <QEvent>
 #include <QInputMethodEvent>
@@ -49,6 +50,7 @@ private:
     QTimer* m_debounceTimer;            // 검색지연타이머
     QString m_pendingText;
     QString m_lastSearchText;
+    StartupCoordinator* m_startupCoordinator = nullptr;
 
     void updateSearchCompleter();
     void performSearch();

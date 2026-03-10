@@ -16,6 +16,8 @@ add_library(stockflow_core STATIC
     FinnhubAPI.cpp
     StockCodeMap.h
     StockCodeMap.cpp
+    StartupCoordinator.h
+    StartupCoordinator.cpp
 )
 
 # 라이브러리 연결

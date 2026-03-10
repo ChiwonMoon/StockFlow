@@ -63,6 +63,7 @@ void MainWindow::createApis()
     // API 객체 생성
     m_usApi = new FinnhubAPI(this);
     m_krApi = new KisAPI(this);
+    m_startupCoordinator = new StartupCoordinator(m_krApi, this);
 }
 
 void MainWindow::setupConnections()
@@ -85,7 +86,7 @@ void MainWindow::setupConnections()
         [this](QString symbol, QPixmap logo) { m_stockModel->updateLogo(symbol, logo); });
 
     // 한국투자증권 로그인 토큰 발급
-    connect(m_krApi, &KisAPI::authenticated, this, &MainWindow::onInitialReady);
+    connect(m_startupCoordinator, &StartupCoordinator::initialReady, this, &MainWindow::onInitialReady);
 }
 
 void MainWindow::setupTimers()
@@ -113,20 +114,13 @@ void MainWindow::startServices()
     // 미국 주식 심볼 전체 가져오기
     m_usApi->fetchAllUSSymblos();
 
-    // 토큰
-    m_krApi->authenticate();
+    // 시작 흐름 시작
+    m_startupCoordinator->start();
 }
 
 void MainWindow::onInitialReady()
 {
-    QStringList symbols = m_stockModel->getAllSymbols();
-    if (symbols.isEmpty())
-    {
-        QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
-        symbols = settings.value(Config::KEY_FAVORITES).toStringList();
-        if (symbols.isEmpty())
-            symbols = { "AAPL", "GOOGL", "NVDA" , "005930", "000660", "005380" };
-    }
+    const QStringList symbols = m_startupCoordinator->initialSymbols();
 
     for (const QString& sym : symbols)
         requestStock(sym);
