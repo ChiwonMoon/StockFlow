@@ -52,6 +52,9 @@ private:
 
     void updateSearchCompleter();
     void performSearch();
+    void requestStock(const QString& sym);
+    void requestLogo(const QString& sym);
+    bool isKoreanSymbol(const QString& sym) const;
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;

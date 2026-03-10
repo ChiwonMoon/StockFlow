@@ -74,7 +74,7 @@ QString StockCodeMap::getName(const QString& code)
 
 QString StockCodeMap::getCodeByName(const QString& name)
 {
-    return m_map.key(name, "없음");
+    return m_map.key(name, QString());
 }
 
 QStringList StockCodeMap::getAllSearchKeywords()

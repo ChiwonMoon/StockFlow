@@ -93,7 +93,7 @@ void MainWindow::setupTimers()
     // 자동 갱신
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &MainWindow::onRefreshClicked);
-    connect(m_timer, &QTimer::timeout, []() { qDebug() << "Auto refresh time out"; });
+    //connect(m_timer, &QTimer::timeout, []() { qDebug() << "Auto refresh time out"; });
 
     m_debounceTimer = new QTimer(this);
     m_debounceTimer->setSingleShot(true);
@@ -138,22 +138,13 @@ void MainWindow::onRefreshClicked()
         symbols = settings.value(Config::KEY_FAVORITES).toStringList();
         if (symbols.isEmpty())
             symbols = { "AAPL", "GOOGL", "NVDA" , "005930", "000660", "005380" };
+
+        for (const QString& sym : symbols)
+            requestLogo(sym);
     }
     
-    QRegularExpression re("^[0-9]{6}$");    // 숫자 6자리 (한국 종목 패턴)
     for (const QString& sym : symbols)
-    {
-        if (re.match(sym).hasMatch())
-        {
-            m_krApi->fetchStock(sym);
-            m_krApi->fetchLogo(sym);
-        }
-        else
-        {
-            m_usApi->fetchStock(sym);
-            m_usApi->fetchLogo(sym);
-        }
-    }
+        requestStock(sym);
 }
 
 void MainWindow::onSearchClicked()
@@ -164,7 +155,7 @@ void MainWindow::onSearchClicked()
 
     QString targetSymbol = input;
 
-    static QRegularExpression re("\\(([^)]+)\\)$");
+    static const QRegularExpression re("\\(([^)]+)\\)$");
     QRegularExpressionMatch match = re.match(input);
 
     if (match.hasMatch())
@@ -180,25 +171,15 @@ void MainWindow::onSearchClicked()
 
         if (targetSymbol != code)
         {
-            if (code == "없음")
+            if (code.isEmpty())
                 return;
-            if (!code.isEmpty())
+            else
                 targetSymbol = code;
         }
     }
 
-    bool isKorean = QRegularExpression("^[0-9]{6}$").match(targetSymbol).hasMatch();
-
-    if (isKorean)
-    {
-        m_krApi->fetchStock(targetSymbol);
-        m_krApi->fetchLogo(targetSymbol);
-    }
-    else
-    {
-        m_usApi->fetchStock(targetSymbol);
-        m_usApi->fetchLogo(targetSymbol);
-    }
+    requestLogo(targetSymbol);
+    requestStock(targetSymbol);
 
     ui->editSearch->clear();
 }
@@ -207,7 +188,7 @@ void MainWindow::onSearchTextEdited(const QString& text)
 {
     m_pendingText = text;
     m_debounceTimer->start();
-    qDebug() << "검색타이머";
+    //qDebug() << "검색타이머";
 }
 
 void MainWindow::onTableContextMenu(const QPoint& pos)
@@ -265,6 +246,36 @@ void MainWindow::performSearch()
     }
 }
 
+void MainWindow::requestStock(const QString& sym)
+{
+    if (isKoreanSymbol(sym))
+    {
+        m_krApi->fetchStock(sym);
+    }
+    else
+    {
+        m_usApi->fetchStock(sym);
+    }
+}
+
+void MainWindow::requestLogo(const QString& sym)
+{
+    if (isKoreanSymbol(sym))
+    {
+        m_krApi->fetchLogo(sym);
+    }
+    else
+    {
+        m_usApi->fetchLogo(sym);
+    }
+}
+
+bool MainWindow::isKoreanSymbol(const QString& sym) const
+{
+    static const QRegularExpression re("^[0-9]{6}$");    // 숫자 6자리 (한국 종목 패턴)
+    return re.match(sym).hasMatch();
+}
+
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
     // 한글 입력 처리
@@ -282,7 +293,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 
         // 타이머 리셋
         m_debounceTimer->start();
-        qDebug() << "한글 입력 감지:" << m_pendingText;
+        //qDebug() << "한글 입력 감지:" << m_pendingText;
 
         // 주의: return false를 해야 QLineEdit 본체도 이벤트를 받아서 글자를 화면에 그립니다.
         return false;
