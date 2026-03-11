@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include "StockCodeMap.h"
 #include <QPixmap>
+#include <QCoreApplication>
 
 KisAPI::KisAPI(QObject* parent) : StockAPI(parent)
 {
@@ -34,7 +35,7 @@ void KisAPI::authenticate()
     json["appsecret"] = Config::KIS_APP_SECRET;
 
     QNetworkReply* reply = manager->post(request, QJsonDocument(json).toJson());
-    NetworkUtils::addTimeOut(reply);
+    NetworkUtils::addTimeOut(reply,15000);
 
     connect(
         reply, 
@@ -49,6 +50,12 @@ void KisAPI::onAuthFinished(QNetworkReply* reply)
     reply->deleteLater();
     if (reply->error() != QNetworkReply::NoError)
     {
+        if (reply->error() == QNetworkReply::OperationCanceledError)
+        {
+            qDebug() << "KIS Auth Error:" << "KIS 토큰 인증이 시간 초과로 실패하여 앱을 종료합니다.";
+            QCoreApplication::quit();
+            return;
+        }
         qDebug() << "KIS Auth Error:" << reply->errorString();
         qDebug() << reply->readAll();
         return;
