@@ -195,17 +195,25 @@ bool KisAPI::loadToken()
     QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
 
     // 저장된 게 없으면 실패
-    if (!settings.contains("kis_token")) return false;
-
-    QDateTime expiry = settings.value("kis_expiry").toDateTime();
-    QString token = settings.value("kis_token").toString();
-
-    // 만료 시간과 현재 시간 비교 (여유 있게 10분 정도 남았는지 확인)
-    if (QDateTime::currentDateTime().addSecs(600) < expiry)
-    {
-        m_accessToken = token; // 멤버 변수에 저장
-        return true; // 유효함!
+    if (!settings.contains("kis_token") || !settings.contains("kis_expiry")) {
+        return false;
     }
 
-    return false; // 만료됨
+    // QSettings에서 시간과 토큰을 꺼냄
+    QDateTime rawExpiry = settings.value("kis_expiry").toDateTime();
+    QString token = settings.value("kis_token").toString();
+
+    QDateTime expiry(rawExpiry.date(), rawExpiry.time(), Qt::LocalTime);
+    QDateTime checkTime = QDateTime::currentDateTime().addSecs(600);
+
+    qDebug() << "현재 시간(+10) :" << checkTime.toString("yyyy-MM-dd HH:mm:ss") << "(Epoch:" << checkTime.toSecsSinceEpoch() << ")";
+    qDebug() << "토큰 만료 시간 :" << expiry.toString("yyyy-MM-dd HH:mm:ss") << "(Epoch:" << expiry.toSecsSinceEpoch() << ")";
+
+    if (expiry.isValid() && checkTime < expiry)
+    {
+        m_accessToken = token;
+        return true;
+    }
+
+    return false;
 }
