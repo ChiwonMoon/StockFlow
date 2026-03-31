@@ -10,6 +10,7 @@
 #include "StockCodeMap.h"
 #include <QPixmap>
 #include <QCoreApplication>
+#include <QTimeZone>
 
 KisAPI::KisAPI(QObject* parent) : StockAPI(parent)
 {
@@ -203,14 +204,22 @@ bool KisAPI::loadToken()
     QDateTime rawExpiry = settings.value("kis_expiry").toDateTime();
     QString token = settings.value("kis_token").toString();
 
-    QDateTime expiry(rawExpiry.date(), rawExpiry.time(), Qt::LocalTime);
-    QDateTime checkTime = QDateTime::currentDateTime().addSecs(600);
+    QTimeZone kst("Asia/Seoul");
 
-    qDebug() << "현재 시간(+10) :" << checkTime.toString("yyyy-MM-dd HH:mm:ss") << "(Epoch:" << checkTime.toSecsSinceEpoch() << ")";
-    qDebug() << "토큰 만료 시간 :" << expiry.toString("yyyy-MM-dd HH:mm:ss") << "(Epoch:" << expiry.toSecsSinceEpoch() << ")";
+    // 현재 시간을 한국시간으로 강제
+    const QDateTime nowKst = QDateTime::currentDateTime(kst);
 
-    if (expiry.isValid() && checkTime < expiry)
-    {
+    // 저장된 만료시간도 한국시간으로 맞춤
+    const QDateTime expiryKst = rawExpiry.toTimeZone(kst);
+
+    qDebug() << "현재 시간(KST):"
+        << nowKst.toString("yyyy-MM-dd HH:mm:ss t")
+        << "(Epoch:" << nowKst.toSecsSinceEpoch() << ")";
+    qDebug() << "토큰 만료 시간(KST):"
+        << expiryKst.toString("yyyy-MM-dd HH:mm:ss t")
+        << "(Epoch:" << expiryKst.toSecsSinceEpoch() << ")";
+
+    if (expiryKst.isValid() && nowKst < expiryKst) {
         m_accessToken = token;
         return true;
     }
