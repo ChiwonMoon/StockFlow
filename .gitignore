@@ -30,4 +30,7 @@ ui_*.h
 moc_*.cpp
 
 # API 키가 들어있는 설정 파일 무시 (보안)
-src/core/Config.h.github/
+src/core/Config.h
+
+# GitHub 관련 폴더 무시
+.github/
