@@ -22,6 +22,8 @@ add_library(stockflow_core STATIC
     StockRequestCoordinator.cpp
     StockSymbolResolver.h
     StockSymbolResolver.cpp
+    StockListSettings.h
+    StockListSettings.cpp
 )
 
 # 라이브러리 연결

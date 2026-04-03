@@ -8,7 +8,6 @@
 #include "core/StockCodeMap.h"
 #include "core/StartupCoordinator.h"
 #include "core/StockRequestCoordinator.h"
-#include "core/StockSymbolResolver.h"
 
 #include <QCompleter>
 #include <QEvent>
@@ -17,7 +16,6 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QStringListModel>
 #include <QTimer>
 
@@ -37,10 +35,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWi
 MainWindow::~MainWindow()
 {
     // 앱 종료 직전에 현재 테이블의 모든 심볼 저장
-    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
-    settings.setValue(Config::KEY_FAVORITES, m_stockModel->getAllSymbols());
+    m_stockListSettings.save(m_stockModel->getAllSymbols());
+
     delete ui;
-    delete m_symbolResolver;
 }
 
 void MainWindow::setupUiState()
@@ -71,9 +68,8 @@ void MainWindow::createApis()
     // API 객체 생성
     m_usApi = new FinnhubAPI(this);
     m_krApi = new KisAPI(this);
-    m_startupCoordinator = new StartupCoordinator(m_krApi, this);
+    m_startupCoordinator = new StartupCoordinator(m_krApi, &m_stockListSettings, this);
     m_requestCoordinator = new StockRequestCoordinator(m_usApi, m_krApi, this);
-    m_symbolResolver = new StockSymbolResolver();
 }
 
 void MainWindow::setupConnections()
@@ -156,7 +152,7 @@ void MainWindow::onRefreshClicked()
 
 void MainWindow::onSearchClicked()
 {
-    const QString targetSymbol = m_symbolResolver->resolve(ui->editSearch->text());
+    const QString targetSymbol = m_symbolResolver.resolve(ui->editSearch->text());
     if (targetSymbol.isEmpty())
         return;
 

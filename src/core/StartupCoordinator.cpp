@@ -1,11 +1,9 @@
 #include "StartupCoordinator.h"
 #include "KisAPI.h"
-#include "Config.h"
+#include "StockListSettings.h"
 
-#include <QSettings>
-
-StartupCoordinator::StartupCoordinator(KisAPI* krApi, QObject* parent)
-    : m_krApi(krApi), QObject(parent)
+StartupCoordinator::StartupCoordinator(KisAPI* krApi, StockListSettings* settings, QObject* parent)
+    : QObject(parent), m_krApi(krApi), m_settings(settings)
 {
     if (m_krApi)
     {
@@ -21,13 +19,10 @@ void StartupCoordinator::start()
 
 QStringList StartupCoordinator::initialSymbols() const
 {
-    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
-    QStringList symbols = settings.value(Config::KEY_FAVORITES).toStringList();
-
-    if (symbols.isEmpty())
+    if (m_settings)
     {
-        symbols = { "AAPL", "GOOGL", "NVDA", "005930", "000660", "005380" };
+        return m_settings->load();
     }
 
-    return symbols;
+    return StockListSettings::defaultSymbols();
 }
