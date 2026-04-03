@@ -1,9 +1,10 @@
 #pragma once
 
-#include <qobject.h>
+#include <QObject>
 #include <QNetworkReply>
 #include <QTimer>
 #include <QDebug>
+
 
 class NetworkUtils : public QObject
 {

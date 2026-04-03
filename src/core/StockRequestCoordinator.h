@@ -2,9 +2,12 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class FinnhubAPI;
 class KisAPI;
+struct StockData;
+class StockTableModel;
 
 class StockRequestCoordinator : public QObject
 {
@@ -15,6 +18,8 @@ public:
 
     void requestStock(const QString& symbol);
     void requestLogo(const QString& symbol);
+    void handleStockData(const StockData& data, StockTableModel* model);
+    void refreshStocks(const QStringList& symbols);
 
 private:
     bool isKoreanSymbol(const QString& symbol) const;

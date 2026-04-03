@@ -1,7 +1,7 @@
 #include "StockRequestCoordinator.h"
 #include "FinnhubAPI.h"
 #include "KisAPI.h"
-
+#include "../ui/StockTableModel.h"
 #include <QRegularExpression>
 
 StockRequestCoordinator::StockRequestCoordinator(FinnhubAPI* usApi, KisAPI* krApi, QObject* parent)
@@ -23,6 +23,23 @@ void StockRequestCoordinator::requestLogo(const QString& symbol)
         m_krApi->fetchLogo(symbol);
     else
         m_usApi->fetchLogo(symbol);
+}
+
+void StockRequestCoordinator::handleStockData(const StockData& data, StockTableModel* model)
+{
+    if (!model)
+        return;
+
+    model->updateOrInsert(data);
+
+    if (!model->hasLogo(data.symbol))
+        requestLogo(data.symbol);
+}
+
+void StockRequestCoordinator::refreshStocks(const QStringList& symbols)
+{
+    for (const QString& sym : symbols)
+        requestStock(sym);
 }
 
 bool StockRequestCoordinator::isKoreanSymbol(const QString& symbol) const

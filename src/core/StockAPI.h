@@ -2,8 +2,8 @@
 
 #include <QObject>
 #include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include "StockData.h"
+
 
 class StockAPI : public QObject
 {

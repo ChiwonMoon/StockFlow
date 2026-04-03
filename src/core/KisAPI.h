@@ -1,7 +1,8 @@
 #pragma once
 
 #include "StockAPI.h"
-#include <QDateTime>
+
+class QDateTime;
 
 class KisAPI : public StockAPI
 {

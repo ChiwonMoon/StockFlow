@@ -1,18 +1,24 @@
 ﻿#include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "StockItemDelegate.h"
+#include "StockTableModel.h"
 #include "core/FinnhubAPI.h"
 #include "core/KisAPI.h"
 #include "core/Config.h"
-#include <QMessageBox>
-#include <QRegularExpression>
-#include <QPushButton>
-#include <QHeaderView>
 #include "core/StockCodeMap.h"
+#include "core/StartupCoordinator.h"
+#include "core/StockRequestCoordinator.h"
+
 #include <QCompleter>
-#include <QStringListModel>
+#include <QEvent>
+#include <QHeaderView>
+#include <QInputMethodEvent>
 #include <QMenu>
+#include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
+#include <QStringListModel>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui::MainWindow)
 {
@@ -123,9 +129,7 @@ void MainWindow::onInitialReady()
 {
     const QStringList symbols = m_startupCoordinator->initialSymbols();
 
-    for (const QString& sym : symbols)
-        m_requestCoordinator->requestStock(sym);
-
+    m_requestCoordinator->refreshStocks(symbols);
 
     // 자동갱신타이머
     m_timer->start(10000);
@@ -133,10 +137,7 @@ void MainWindow::onInitialReady()
 
 void MainWindow::updateUI(const StockData& data)
 {
-    m_stockModel->updateOrInsert(data);
-
-    if (!m_stockModel->hasLogo(data.symbol))
-        m_requestCoordinator->requestLogo(data.symbol);
+    m_requestCoordinator->handleStockData(data, m_stockModel);
 }
 
 void MainWindow::onRefreshClicked()
@@ -147,8 +148,7 @@ void MainWindow::onRefreshClicked()
         return;
     }
     
-    for (const QString& sym : symbols)
-        m_requestCoordinator->requestStock(sym);
+    m_requestCoordinator->refreshStocks(symbols);
 }
 
 void MainWindow::onSearchClicked()

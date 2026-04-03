@@ -1,19 +1,22 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QTimer>
-#include "StockTableModel.h"
-#include "core/KisAPI.h"
-#include "core/FinnhubAPI.h"
-#include "core/StartupCoordinator.h"
-#include "core/StockRequestCoordinator.h"
-#include <QStringListModel>
-#include <QEvent>
-#include <QInputMethodEvent>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
+
+struct StockData;
+
+class FinnhubAPI;
+class KisAPI;
+class QEvent;
+class QPoint;
+class QTimer;
+class QStringListModel;
+class StockTableModel;
+class StartupCoordinator;
+class StockRequestCoordinator;
 
 class MainWindow : public QMainWindow
 {

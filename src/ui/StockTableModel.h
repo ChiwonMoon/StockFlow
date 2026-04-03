@@ -4,6 +4,7 @@
 #include <vector>
 #include "core/StockData.h"
 
+
 class StockTableModel : public QAbstractTableModel
 {
 	Q_OBJECT
