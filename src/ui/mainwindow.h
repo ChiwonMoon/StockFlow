@@ -17,6 +17,7 @@ class QStringListModel;
 class StockTableModel;
 class StartupCoordinator;
 class StockRequestCoordinator;
+class StockSymbolResolver;
 
 class MainWindow : public QMainWindow
 {
@@ -56,6 +57,7 @@ private:
     QString m_lastSearchText;
     StartupCoordinator* m_startupCoordinator = nullptr;
     StockRequestCoordinator* m_requestCoordinator = nullptr;
+    StockSymbolResolver* m_symbolResolver = nullptr;
 
     void updateSearchCompleter();
     void performSearch();

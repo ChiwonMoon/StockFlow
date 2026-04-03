@@ -8,6 +8,7 @@
 #include "core/StockCodeMap.h"
 #include "core/StartupCoordinator.h"
 #include "core/StockRequestCoordinator.h"
+#include "core/StockSymbolResolver.h"
 
 #include <QCompleter>
 #include <QEvent>
@@ -39,6 +40,7 @@ MainWindow::~MainWindow()
     QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
     settings.setValue(Config::KEY_FAVORITES, m_stockModel->getAllSymbols());
     delete ui;
+    delete m_symbolResolver;
 }
 
 void MainWindow::setupUiState()
@@ -71,6 +73,7 @@ void MainWindow::createApis()
     m_krApi = new KisAPI(this);
     m_startupCoordinator = new StartupCoordinator(m_krApi, this);
     m_requestCoordinator = new StockRequestCoordinator(m_usApi, m_krApi, this);
+    m_symbolResolver = new StockSymbolResolver();
 }
 
 void MainWindow::setupConnections()
@@ -153,34 +156,9 @@ void MainWindow::onRefreshClicked()
 
 void MainWindow::onSearchClicked()
 {
-    // 공백제거 대문자 변환
-    QString input = ui->editSearch->text().trimmed().toUpper();
-    if (input.isEmpty()) return;
-
-    QString targetSymbol = input;
-
-    static const QRegularExpression re("\\(([^)]+)\\)$");
-    QRegularExpressionMatch match = re.match(input);
-
-    if (match.hasMatch())
-    {
-        // 괄호 안의 내용(코드)만 추출해서 타겟으로 설정
-        targetSymbol = match.captured(1);
-    }
-    else {
-        // 괄호가 없다면
-        targetSymbol = targetSymbol.toUpper();
-        QString name = StockCodeMap::getName(targetSymbol);
-        QString code = StockCodeMap::getCodeByName(name);
-
-        if (targetSymbol != code)
-        {
-            if (code.isEmpty())
-                return;
-            else
-                targetSymbol = code;
-        }
-    }
+    const QString targetSymbol = m_symbolResolver->resolve(ui->editSearch->text());
+    if (targetSymbol.isEmpty())
+        return;
 
     m_requestCoordinator->requestStock(targetSymbol);
 
