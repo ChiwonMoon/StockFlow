@@ -18,7 +18,7 @@ add_library(stockflow_core STATIC
     StockCodeMap.cpp
     StartupCoordinator.h
     StartupCoordinator.cpp
-)
+ "StockRequestCoordinator.h" "StockRequestCoordinator.cpp")
 
 # 라이브러리 연결
 target_link_libraries(stockflow_core

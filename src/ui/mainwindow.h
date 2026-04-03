@@ -6,6 +6,7 @@
 #include "core/KisAPI.h"
 #include "core/FinnhubAPI.h"
 #include "core/StartupCoordinator.h"
+#include "core/StockRequestCoordinator.h"
 #include <QStringListModel>
 #include <QEvent>
 #include <QInputMethodEvent>
@@ -51,12 +52,10 @@ private:
     QString m_pendingText;
     QString m_lastSearchText;
     StartupCoordinator* m_startupCoordinator = nullptr;
+    StockRequestCoordinator* m_requestCoordinator = nullptr;
 
     void updateSearchCompleter();
     void performSearch();
-    void requestStock(const QString& sym);
-    void requestLogo(const QString& sym);
-    bool isKoreanSymbol(const QString& sym) const;
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;

@@ -64,6 +64,7 @@ void MainWindow::createApis()
     m_usApi = new FinnhubAPI(this);
     m_krApi = new KisAPI(this);
     m_startupCoordinator = new StartupCoordinator(m_krApi, this);
+    m_requestCoordinator = new StockRequestCoordinator(m_usApi, m_krApi, this);
 }
 
 void MainWindow::setupConnections()
@@ -123,7 +124,8 @@ void MainWindow::onInitialReady()
     const QStringList symbols = m_startupCoordinator->initialSymbols();
 
     for (const QString& sym : symbols)
-        requestStock(sym);
+        m_requestCoordinator->requestStock(sym);
+
 
     // 자동갱신타이머
     m_timer->start(10000);
@@ -134,7 +136,7 @@ void MainWindow::updateUI(const StockData& data)
     m_stockModel->updateOrInsert(data);
 
     if (!m_stockModel->hasLogo(data.symbol))
-        requestLogo(data.symbol);
+        m_requestCoordinator->requestLogo(data.symbol);
 }
 
 void MainWindow::onRefreshClicked()
@@ -146,7 +148,7 @@ void MainWindow::onRefreshClicked()
     }
     
     for (const QString& sym : symbols)
-        requestStock(sym);
+        m_requestCoordinator->requestStock(sym);
 }
 
 void MainWindow::onSearchClicked()
@@ -180,7 +182,7 @@ void MainWindow::onSearchClicked()
         }
     }
 
-    requestStock(targetSymbol);
+    m_requestCoordinator->requestStock(targetSymbol);
 
     ui->editSearch->clear();
 }
@@ -245,36 +247,6 @@ void MainWindow::performSearch()
         // 팝업 띄우기
         completer->complete();
     }
-}
-
-void MainWindow::requestStock(const QString& sym)
-{
-    if (isKoreanSymbol(sym))
-    {
-        m_krApi->fetchStock(sym);
-    }
-    else
-    {
-        m_usApi->fetchStock(sym);
-    }
-}
-
-void MainWindow::requestLogo(const QString& sym)
-{
-    if (isKoreanSymbol(sym))
-    {
-        m_krApi->fetchLogo(sym);
-    }
-    else
-    {
-        m_usApi->fetchLogo(sym);
-    }
-}
-
-bool MainWindow::isKoreanSymbol(const QString& sym) const
-{
-    static const QRegularExpression re("^[0-9]{6}$");    // 숫자 6자리 (한국 종목 패턴)
-    return re.match(sym).hasMatch();
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
