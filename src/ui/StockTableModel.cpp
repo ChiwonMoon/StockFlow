@@ -184,12 +184,42 @@ QStringList StockTableModel::getAllSymbols() const
     return symbols;
 }
 
+QString StockTableModel::symbolAt(int row) const
+{
+	if (row < 0 || row >= static_cast<int>(m_data.size())) return QString();
+	return m_data[row].symbol;
+}
+
+QString StockTableModel::displayNameAt(int row) const
+{
+	if (row < 0 || row >= static_cast<int>(m_data.size())) return QString();
+	const StockData& stock = m_data[row];
+	return stock.name != stock.symbol ? stock.name : stock.symbol;
+}
+
+double StockTableModel::currentPriceAt(int row) const
+{
+	if (row < 0 || row >= static_cast<int>(m_data.size())) return 0.0;
+	return m_data[row].currentPrice;
+}
+
 bool StockTableModel::hasLogo(const QString& symbol) const
 {
     for (const auto& stock : m_data)
     {
         if (stock.symbol == symbol)
             return !stock.logo.isNull();
+    }
+
+    return false;
+}
+
+bool StockTableModel::contains(const QString& symbol) const
+{
+    for (const auto& stock : m_data)
+    {
+        if (stock.symbol == symbol)
+            return true;
     }
 
     return false;

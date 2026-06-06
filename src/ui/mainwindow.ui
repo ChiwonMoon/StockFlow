@@ -27,7 +27,20 @@
      <string>Refresh</string>
     </property>
    </widget>
-   <widget class="QTableView" name="tableView">
+   <widget class="QPushButton" name="btnOpenOrders">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>280</y>
+      <width>120</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>미체결/정정취소</string>
+    </property>
+   </widget>
+   <widget class="QTabWidget" name="tabWidget">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -36,6 +49,53 @@
       <height>231</height>
      </rect>
     </property>
+    <property name="currentIndex">
+     <number>0</number>
+    </property>
+    <widget class="QWidget" name="tabWatchlist">
+     <attribute name="title">
+      <string>관심종목</string>
+     </attribute>
+     <layout class="QVBoxLayout" name="watchlistLayout">
+      <property name="leftMargin">
+       <number>2</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>2</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QTableView" name="tableView"/>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="tabHoldings">
+     <attribute name="title">
+      <string>보유종목</string>
+     </attribute>
+     <layout class="QVBoxLayout" name="holdingsLayout">
+      <property name="leftMargin">
+       <number>2</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>2</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QTableView" name="holdingsView"/>
+      </item>
+     </layout>
+    </widget>
    </widget>
    <widget class="QLineEdit" name="editSearch">
     <property name="geometry">

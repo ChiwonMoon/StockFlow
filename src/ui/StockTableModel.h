@@ -28,6 +28,12 @@ public:
 	bool isPriceChanged(int row) const;
 	QStringList getAllSymbols() const;
 	bool hasLogo(const QString& symbol) const;
+	bool contains(const QString& symbol) const;
+
+	// 행 단위 조회 (컨텍스트 메뉴/주문 등에서 사용)
+	QString symbolAt(int row) const;
+	QString displayNameAt(int row) const;
+	double currentPriceAt(int row) const;
 
 	enum Column
 	{
