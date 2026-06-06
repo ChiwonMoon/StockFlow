@@ -6,7 +6,7 @@
 
 namespace Config {
     // 여기에 Finnhub에서 발급받은 API 키를 입력하세요.
-    / ==========================================
+    // ==========================================
     // 🇺🇸 미국 주식 (Finnhub) 설정
     // ==========================================
     // 기존 API_KEY -> FINNHUB_API_KEY로 명확하게 변경
@@ -15,17 +15,24 @@ namespace Config {
 
 
     // ==========================================
-    // 🇰🇷 한국 주식 (한국투자증권 KIS - 모의투자) 설정
+    // 🇰🇷 한국 주식 (한국투자증권 KIS) 설정
     // ==========================================
-    // ※ 주의: 실전투자가 아닌 '모의투자(Virtual Trading)' 서버 주소입니다.
-    // (포트 번호가 29443임에 주의하세요)
-    const QString KIS_BASE_URL = "https://openapivts.koreainvestment.com:29443";
+    // ※ 예약주문(order-resv)은 '실전투자' 전용 기능입니다. 모의투자 서버는 미지원.
+    //   - 모의투자(조회/일반주문만): "https://openapivts.koreainvestment.com:29443" (포트 29443)
+    //   - 실전투자(예약주문 가능)  : "https://openapi.koreainvestment.com:9443"    (포트 9443)
+    // ⚠️ 실전투자는 실제 체결/실제 돈입니다. 키·계좌번호·수량을 반드시 재확인하세요.
+    const QString KIS_BASE_URL = "https://openapi.koreainvestment.com:9443";
 
-    // 한국투자증권 개발자 센터(모의투자)에서 발급받은 키를 입력하세요.
+    // 한국투자증권 개발자 센터에서 발급받은 키를 입력하세요.
+    // ※ 실전/모의 키는 서로 다릅니다. KIS_BASE_URL과 동일한 환경의 키를 넣으세요.
     const QString KIS_APP_KEY = "여기에_KIS_APP_KEY_입력";
-    
+
     // Secret Key는 매우 깁니다. 줄바꿈 없이 한 줄로 넣어야 합니다.
     const QString KIS_APP_SECRET = "여기에_KIS_APP_SECRET_입력";
+
+    // 주문(매수/매도)에 필요한 계좌번호 (계좌번호 체계 8-2)
+    const QString KIS_ACCOUNT_CANO = "여기에_계좌번호_앞8자리";   // 종합계좌번호 앞 8자리
+    const QString KIS_ACCOUNT_PRDT_CD = "01";                    // 계좌상품코드 뒤 2자리 (보통 01)
 
     // settings
 	static const char* SETTINGS_APP = "StockFlow";
