@@ -50,7 +50,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>SOR예약매도(앱)</string>
+     <string>SOR 예약목록(앱)</string>
     </property>
    </widget>
    <widget class="QTabWidget" name="tabWidget">
