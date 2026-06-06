@@ -307,6 +307,39 @@ void MainWindow::addSellQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qt
     m_krApi->fetchBalance(); // 최신 보유수량 갱신
 }
 
+void MainWindow::addBuyQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form, double price)
+{
+    QPushButton* maxBtn = new QPushButton("최대", dlg);
+    QHBoxLayout* qtyRow = new QHBoxLayout();
+    qtyRow->addWidget(qtySpin);
+    qtyRow->addWidget(maxBtn);
+    form->addRow("수량", qtyRow);
+
+    QLabel* cashLabel = new QLabel("주문가능현금: 조회 중...", dlg);
+    form->addRow("", cashLabel);
+
+    // 주문가능현금/최대매수수량 응답 보관 (최대 버튼용). 수명은 다이얼로그에 종속
+    auto maxQty = std::make_shared<int>(-1);
+    connect(m_krApi, &KisAPI::orderableCashReceived, dlg,
+        [cashLabel, symbol, maxQty](const QString& s, qint64 cash, int mq)
+        {
+            if (s != symbol) return;
+            *maxQty = mq;
+            cashLabel->setText(QString("주문가능현금: %1원  /  최대매수: %2주")
+                .arg(QLocale::system().toString(cash), QString::number(mq)));
+        });
+
+    // 최대 버튼 → 최대매수수량으로 채움
+    connect(maxBtn, &QPushButton::clicked, dlg,
+        [maxQty, qtySpin, dlg]()
+        {
+            if (*maxQty > 0) qtySpin->setValue(*maxQty);
+            else QMessageBox::information(dlg, "최대수량", "최대매수수량이 없거나 아직 조회되지 않았습니다.");
+        });
+
+    m_krApi->fetchOrderableCash(symbol, price, false); // 현재가 기준 조회
+}
+
 void MainWindow::onSearchClicked()
 {
     const QString targetSymbol = m_symbolResolver.resolve(ui->editSearch->text());
@@ -493,24 +526,9 @@ void MainWindow::scheduleOrderDialog(StockTableModel* model, int row, bool isBuy
     QFormLayout* form = new QFormLayout();
     form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
     if (isBuy)
-    {
-        form->addRow("수량", qtySpin);
-        // 매수: 주문가능현금/최대매수수량 표시 (라이브 갱신)
-        QLabel* cashLabel = new QLabel("주문가능현금: 조회 중...", &dlg);
-        connect(m_krApi, &KisAPI::orderableCashReceived, &dlg,
-            [cashLabel, symbol](const QString& s, qint64 cash, int maxQty)
-            {
-                if (s != symbol) return;
-                cashLabel->setText(QString("주문가능현금: %1원  /  최대매수: %2주")
-                    .arg(QLocale::system().toString(cash), QString::number(maxQty)));
-            });
-        m_krApi->fetchOrderableCash(symbol, curPrice, false);
-        form->addRow("", cashLabel);
-    }
+        addBuyQtyRow(&dlg, symbol, qtySpin, form, curPrice);   // 매수: 최대 버튼 + 주문가능현금
     else
-    {
-        addSellQtyRow(&dlg, symbol, qtySpin, form); // 매도: 전량 버튼 + 보유수량 상한
-    }
+        addSellQtyRow(&dlg, symbol, qtySpin, form);            // 매도: 전량 버튼 + 보유수량 상한
     form->addRow("", marketCheck);
     form->addRow("지정가", priceSpin);
     form->addRow("발사 시각", fireEdit);
@@ -751,31 +769,14 @@ void MainWindow::tradeDialog(StockTableModel* model, int row, bool isBuy)
 
     connect(marketCheck, &QCheckBox::toggled, priceSpin, &QSpinBox::setDisabled);
 
-    // 매수일 때만 주문가능현금/최대매수수량 표시
-    QLabel* cashLabel = nullptr;
-    if (isBuy)
-    {
-        cashLabel = new QLabel("주문가능현금: 조회 중...", &dlg);
-        // 응답이 오면(다이얼로그 exec 이벤트루프에서 처리) 라벨 갱신. 컨텍스트=dlg 로 수명 관리
-        connect(m_krApi, &KisAPI::orderableCashReceived, &dlg,
-            [cashLabel, symbol](const QString& s, qint64 cash, int maxQty)
-            {
-                if (s != symbol) return;
-                cashLabel->setText(QString("주문가능현금: %1원  /  최대매수: %2주")
-                    .arg(QLocale::system().toString(cash), QString::number(maxQty)));
-            });
-        m_krApi->fetchOrderableCash(symbol, curPrice, false);
-    }
-
     QFormLayout* form = new QFormLayout();
     form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
     if (isBuy)
-        form->addRow("수량", qtySpin);             // 매수: 상한 없음 (주문가능현금 표시)
+        addBuyQtyRow(&dlg, symbol, qtySpin, form, curPrice);   // 최대 버튼 + 주문가능현금
     else
-        addSellQtyRow(&dlg, symbol, qtySpin, form); // 매도: 전량 버튼 + 보유수량 상한
+        addSellQtyRow(&dlg, symbol, qtySpin, form);            // 전량 버튼 + 보유수량 상한
     form->addRow("", marketCheck);
     form->addRow("지정가", priceSpin);
-    if (cashLabel) form->addRow("", cashLabel);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);

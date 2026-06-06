@@ -97,6 +97,8 @@ private:
     void saveScheduledOrders();                                             // SOR 예약 저장 (변경 시)
     // 매도 다이얼로그에 수량행(전량 버튼 + 보유수량 표시 + 보유수량 상한) 추가
     void addSellQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form);
+    // 매수 다이얼로그에 수량행(최대 버튼 + 주문가능현금/최대매수 표시) 추가
+    void addBuyQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form, double price);
     void showStockContextMenu(QTableView* view, StockTableModel* model, const QPoint& pos);
     void reserveSellFor(StockTableModel* model, int row);                  // KIS 예약매도(KRX) 다이얼로그
     void scheduleOrderDialog(StockTableModel* model, int row, bool isBuy);  // 앱 SOR 예약주문 등록 다이얼로그
