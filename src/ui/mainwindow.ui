@@ -40,6 +40,19 @@
      <string>미체결/정정취소</string>
     </property>
    </widget>
+   <widget class="QPushButton" name="btnSchedSells">
+    <property name="geometry">
+     <rect>
+      <x>140</x>
+      <y>280</y>
+      <width>140</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>SOR예약매도(앱)</string>
+    </property>
+   </widget>
    <widget class="QTabWidget" name="tabWidget">
     <property name="geometry">
      <rect>

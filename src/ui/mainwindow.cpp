@@ -14,6 +14,8 @@
 #include <QCompleter>
 #include <QDate>
 #include <QDateEdit>
+#include <QDateTime>
+#include <QDateTimeEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QEvent>
@@ -28,6 +30,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QSpinBox>
 #include <QStringListModel>
 #include <QTabWidget>
@@ -104,6 +107,7 @@ void MainWindow::setupConnections()
     connect(ui->editSearch, &QLineEdit::returnPressed, ui->btnSearch, &QPushButton::click);
     connect(ui->btnSearch, &QPushButton::clicked, this, &MainWindow::onSearchClicked);
     connect(ui->btnOpenOrders, &QPushButton::clicked, this, &MainWindow::onOpenOrdersClicked);
+    connect(ui->btnSchedSells, &QPushButton::clicked, this, &MainWindow::onScheduledSellsClicked);
 
     // 우클릭 메뉴 (관심종목/보유종목 각 탭의 모델로 동작)
     connect(ui->tableView, &QTableView::customContextMenuRequested, this,
@@ -183,6 +187,12 @@ void MainWindow::setupTimers()
     m_debounceTimer->setSingleShot(true);
     m_debounceTimer->setInterval(300);
     connect(m_debounceTimer, &QTimer::timeout, this, &MainWindow::performSearch);
+
+    // SOR 예약매도 발사 체크 (5초마다 도달분 확인)
+    m_scheduleTimer = new QTimer(this);
+    m_scheduleTimer->setInterval(5000);
+    connect(m_scheduleTimer, &QTimer::timeout, this, &MainWindow::checkScheduledOrders);
+    m_scheduleTimer->start();
 }
 
 void MainWindow::setupSearch()
@@ -194,6 +204,9 @@ void MainWindow::setupSearch()
 
 void MainWindow::startServices()
 {
+    // 저장된 SOR 예약매도 복원
+    loadScheduledSells();
+
     // 미국 주식 심볼 전체 가져오기
     m_usApi->fetchAllUSSymblos();
 
@@ -326,7 +339,8 @@ void MainWindow::showStockContextMenu(QTableView* view, StockTableModel* model, 
     QMenu menu(this);
     QAction* buyAction = isKorean ? menu.addAction("매수 (Buy)") : nullptr;
     QAction* sellAction = isKorean ? menu.addAction("매도 (Sell)") : nullptr;
-    QAction* reserveSellAction = isKorean ? menu.addAction("예약매도 (Reserve Sell)") : nullptr;
+    QAction* reserveSellAction = isKorean ? menu.addAction("예약매도 (KIS·KRX)") : nullptr;
+    QAction* schedSellAction = isKorean ? menu.addAction("SOR 예약매도 (앱·NXT포함)") : nullptr;
     QAction* askingPriceAction = isKorean ? menu.addAction("호가 (10호가)") : nullptr;
     if (isKorean) menu.addSeparator();
     QAction* deleteAction = menu.addAction("삭제 (delete)");
@@ -341,6 +355,8 @@ void MainWindow::showStockContextMenu(QTableView* view, StockTableModel* model, 
         tradeDialog(model, row, false);
     else if (selectedItem == reserveSellAction)
         reserveSellFor(model, row);
+    else if (selectedItem == schedSellAction)
+        scheduleSellDialog(model, row);
     else if (selectedItem == askingPriceAction)
         showAskingPrice(model, row);
     else if (selectedItem == deleteAction)
@@ -425,6 +441,251 @@ void MainWindow::reserveSellFor(StockTableModel* model, int row)
         return;
 
     m_krApi->reserveSellOrder(symbol, qty, price, isMarket, endDate);
+}
+
+void MainWindow::scheduleSellDialog(StockTableModel* model, int row)
+{
+    const QString symbol = model->symbolAt(row);
+    const QString name = model->displayNameAt(row);
+    const double curPrice = model->currentPriceAt(row);
+
+    // 계좌번호 미설정 방어
+    if (Config::KIS_ACCOUNT_CANO.isEmpty() || Config::KIS_ACCOUNT_CANO.startsWith("여기에"))
+    {
+        QMessageBox::warning(this, "설정 필요",
+            "Config.h의 KIS_ACCOUNT_CANO(종합계좌번호 앞 8자리)를 먼저 설정하세요.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("SOR 예약매도 (앱)");
+
+    QSpinBox* qtySpin = new QSpinBox(&dlg);
+    qtySpin->setRange(1, 1000000);
+    qtySpin->setValue(1);
+    qtySpin->setSuffix(" 주");
+
+    QCheckBox* marketCheck = new QCheckBox("시장가 주문", &dlg);
+
+    QSpinBox* priceSpin = new QSpinBox(&dlg);
+    priceSpin->setRange(0, 1000000000);
+    priceSpin->setSingleStep(10);
+    priceSpin->setGroupSeparatorShown(true);
+    priceSpin->setSuffix(" 원");
+    priceSpin->setValue(static_cast<int>(curPrice));
+    connect(marketCheck, &QCheckBox::toggled, priceSpin, &QSpinBox::setDisabled);
+
+    // 발사 시각 기본값: 다음 08:00 (NXT 프리마켓 시작)
+    const QDateTime now = QDateTime::currentDateTime();
+    QDateTime next8(now.date(), QTime(8, 0));
+    if (now.time() >= QTime(8, 0))
+        next8 = next8.addDays(1);
+    QDateTimeEdit* fireEdit = new QDateTimeEdit(next8, &dlg);
+    fireEdit->setDisplayFormat("yyyy-MM-dd HH:mm");
+    fireEdit->setCalendarPopup(true);
+
+    QCheckBox* dailyCheck = new QCheckBox("매일 반복 (체결/취소 전까지)", &dlg);
+
+    QFormLayout* form = new QFormLayout();
+    form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
+    addSellQtyRow(&dlg, symbol, qtySpin, form); // 전량 버튼 + 보유수량 상한
+    form->addRow("", marketCheck);
+    form->addRow("지정가", priceSpin);
+    form->addRow("발사 시각", fireEdit);
+    form->addRow("", dailyCheck);
+
+    QLabel* hint = new QLabel("※ 발사 시각에 PC(이 앱)가 켜져 있어야 주문이 나갑니다.\n   거래소는 SOR(KRX+NXT 통합)로 전송됩니다.", &dlg);
+    hint->setStyleSheet("color: gray;");
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addLayout(form);
+    layout->addWidget(hint);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    ScheduledSell s;
+    s.symbol = symbol;
+    s.name = name;
+    s.qty = qtySpin->value();
+    s.marketPrice = marketCheck->isChecked();
+    s.price = priceSpin->value();
+    s.fireTime = fireEdit->dateTime();
+    s.daily = dailyCheck->isChecked();
+
+    // 1회 예약인데 발사 시각이 과거면 거부
+    if (!s.daily && s.fireTime <= QDateTime::currentDateTime())
+    {
+        QMessageBox::warning(this, "시각 오류", "발사 시각이 이미 지났습니다. 미래 시각으로 지정하세요.");
+        return;
+    }
+
+    const QString priceText = s.marketPrice ? "시장가" : (QLocale::system().toString(s.price, 'f', 0) + "원");
+    const QString confirmMsg =
+        QString("⚠️ 앱 SOR 예약매도 등록 (실전 계좌)\n\n종목: %1 (%2)\n수량: %3주\n가격: %4\n발사: %5%6\n\n등록할까요?")
+            .arg(name, symbol).arg(s.qty)
+            .arg(priceText, s.fireTime.toString("yyyy-MM-dd HH:mm"), s.daily ? " (매일 반복)" : "");
+
+    if (QMessageBox::warning(this, "SOR 예약 확인", confirmMsg,
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    m_scheduledSells.append(s);
+    saveScheduledSells();
+}
+
+void MainWindow::checkScheduledOrders()
+{
+    if (m_scheduledSells.isEmpty())
+        return;
+
+    const QDateTime now = QDateTime::currentDateTime();
+    bool changed = false;
+    for (int i = m_scheduledSells.size() - 1; i >= 0; --i)
+    {
+        ScheduledSell& s = m_scheduledSells[i];
+        if (s.fireTime > now)
+            continue;
+
+        qDebug() << "[SOR예약] 발사:" << s.symbol << s.qty << "주" << (s.marketPrice ? "시장가" : QString::number(s.price));
+        m_krApi->placeOrder(s.symbol, false, s.qty, s.price, s.marketPrice); // 매도(SOR), 결과는 orderPlaced로 표시
+
+        if (s.daily)
+        {
+            // 다음 영업/달력일로 이월 (과거 누락분 방지)
+            do { s.fireTime = s.fireTime.addDays(1); } while (s.fireTime <= now);
+        }
+        else
+        {
+            m_scheduledSells.removeAt(i);
+        }
+        changed = true;
+    }
+
+    if (changed)
+        saveScheduledSells();
+}
+
+void MainWindow::saveScheduledSells()
+{
+    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
+    settings.remove("sched_sells"); // 기존 배열 제거 후 재기록 (잔여 항목 방지)
+    settings.beginWriteArray("sched_sells");
+    for (int i = 0; i < m_scheduledSells.size(); ++i)
+    {
+        const ScheduledSell& s = m_scheduledSells[i];
+        settings.setArrayIndex(i);
+        settings.setValue("symbol", s.symbol);
+        settings.setValue("name", s.name);
+        settings.setValue("qty", s.qty);
+        settings.setValue("price", s.price);
+        settings.setValue("marketPrice", s.marketPrice);
+        settings.setValue("fireTime", s.fireTime);
+        settings.setValue("daily", s.daily);
+    }
+    settings.endArray();
+}
+
+void MainWindow::loadScheduledSells()
+{
+    QSettings settings(Config::SETTINGS_COMPANY, Config::SETTINGS_APP);
+    const int n = settings.beginReadArray("sched_sells");
+    const QDateTime now = QDateTime::currentDateTime();
+
+    for (int i = 0; i < n; ++i)
+    {
+        settings.setArrayIndex(i);
+        ScheduledSell s;
+        s.symbol = settings.value("symbol").toString();
+        s.name = settings.value("name").toString();
+        s.qty = settings.value("qty").toInt();
+        s.price = settings.value("price").toDouble();
+        s.marketPrice = settings.value("marketPrice").toBool();
+        s.fireTime = settings.value("fireTime").toDateTime();
+        s.daily = settings.value("daily").toBool();
+
+        if (s.daily)
+        {
+            // 앱이 꺼져 지나간 발사는 다음 시각으로 이월
+            while (s.fireTime.isValid() && s.fireTime <= now)
+                s.fireTime = s.fireTime.addDays(1);
+        }
+        else if (s.fireTime <= now)
+        {
+            // 1회 예약인데 발사 시각이 이미 지났으면(앱 꺼져 있던 사이) 폐기
+            qDebug() << "[SOR예약] 놓친 1회 예약 폐기:" << s.symbol << s.fireTime;
+            continue;
+        }
+
+        m_scheduledSells.append(s);
+    }
+    settings.endArray();
+
+    // 이월/폐기 반영분 다시 저장
+    saveScheduledSells();
+}
+
+void MainWindow::onScheduledSellsClicked()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle("SOR 예약매도 목록 (앱)");
+    dlg.resize(580, 320);
+
+    QTableWidget* table = new QTableWidget(0, 5, &dlg);
+    table->setHorizontalHeaderLabels({ "종목", "수량", "가격", "발사시각", "반복" });
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+
+    auto refresh = [this, table]()
+    {
+        QLocale loc = QLocale::system();
+        table->setRowCount(m_scheduledSells.size());
+        for (int i = 0; i < m_scheduledSells.size(); ++i)
+        {
+            const ScheduledSell& s = m_scheduledSells[i];
+            table->setItem(i, 0, new QTableWidgetItem(QString("%1 (%2)").arg(s.name, s.symbol)));
+            table->setItem(i, 1, new QTableWidgetItem(loc.toString(s.qty)));
+            table->setItem(i, 2, new QTableWidgetItem(s.marketPrice ? "시장가" : loc.toString(s.price, 'f', 0)));
+            table->setItem(i, 3, new QTableWidgetItem(s.fireTime.toString("yyyy-MM-dd HH:mm")));
+            table->setItem(i, 4, new QTableWidgetItem(s.daily ? "매일" : "1회"));
+        }
+    };
+    refresh();
+
+    QPushButton* cancelBtn = new QPushButton("선택 취소", &dlg);
+    connect(cancelBtn, &QPushButton::clicked, &dlg, [this, table, refresh]()
+    {
+        const int r = table->currentRow();
+        if (r < 0 || r >= m_scheduledSells.size())
+        {
+            QMessageBox::information(table->window(), "취소", "예약을 선택하세요.");
+            return;
+        }
+        m_scheduledSells.removeAt(r);
+        saveScheduledSells();
+        refresh();
+    });
+
+    QPushButton* closeBtn = new QPushButton("닫기", &dlg);
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    QHBoxLayout* btnRow = new QHBoxLayout();
+    btnRow->addWidget(cancelBtn);
+    btnRow->addWidget(closeBtn);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(table);
+    layout->addLayout(btnRow);
+
+    dlg.exec();
 }
 
 void MainWindow::tradeDialog(StockTableModel* model, int row, bool isBuy)

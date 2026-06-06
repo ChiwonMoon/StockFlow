@@ -5,8 +5,22 @@
 #include <QStringList>
 #include <QSet>
 #include <QHash>
+#include <QList>
+#include <QDateTime>
 #include "core/StockSymbolResolver.h"
 #include "core/StockListSettings.h"
+
+// 앱 자체 SOR 예약매도 한 건 (정한 시각에 order-cash SOR 발사)
+struct ScheduledSell
+{
+    QString symbol;
+    QString name;
+    int qty = 0;
+    double price = 0;
+    bool marketPrice = false;
+    QDateTime fireTime;   // 다음 발사 시각
+    bool daily = false;   // 매일 반복 여부
+};
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -52,6 +66,8 @@ private slots:
     void onSearchClicked();
     void onSearchTextEdited(const QString &text);
     void onOpenOrdersClicked();
+    void onScheduledSellsClicked();   // SOR 예약매도 목록/취소
+    void checkScheduledOrders();      // 발사 시각 도달분 발사
 
 private:
     Ui::MainWindow* ui = nullptr;;
@@ -61,6 +77,8 @@ private:
     StockTableModel* m_holdingsModel = nullptr;     // 보유종목 탭
     QSet<QString> m_holdingSymbols;                 // 보유종목 코드 집합 (시세 라우팅용)
     QHash<QString, int> m_holdingQty;               // 종목 → 보유수량 (전량/상한용)
+    QList<ScheduledSell> m_scheduledSells;          // 앱 자체 SOR 예약매도 목록
+    QTimer* m_scheduleTimer = nullptr;              // SOR 예약 발사 체크 타이머
     QTimer* m_timer = nullptr;                    // 갱신타이머
     QStringListModel* m_searchModel = nullptr;
     QTimer* m_debounceTimer = nullptr;            // 검색지연타이머
@@ -74,10 +92,13 @@ private:
     void updateSearchCompleter();
     void performSearch();
     void loadHoldings();                                                    // 보유종목 탭 로드
+    void loadScheduledSells();                                              // SOR 예약 복원 (시작 시)
+    void saveScheduledSells();                                              // SOR 예약 저장 (변경 시)
     // 매도 다이얼로그에 수량행(전량 버튼 + 보유수량 표시 + 보유수량 상한) 추가
     void addSellQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form);
     void showStockContextMenu(QTableView* view, StockTableModel* model, const QPoint& pos);
-    void reserveSellFor(StockTableModel* model, int row);                  // 예약매도 다이얼로그
+    void reserveSellFor(StockTableModel* model, int row);                  // KIS 예약매도(KRX) 다이얼로그
+    void scheduleSellDialog(StockTableModel* model, int row);              // 앱 SOR 예약매도 등록 다이얼로그
     void tradeDialog(StockTableModel* model, int row, bool isBuy);         // 즉시 매수/매도 다이얼로그
     void showAskingPrice(StockTableModel* model, int row);                 // 10호가 다이얼로그
 
