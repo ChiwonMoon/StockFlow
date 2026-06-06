@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QList>
 #include <QVector>
+#include <QHash>
 
 class QDateTime;
 class QNetworkRequest;
@@ -80,6 +81,8 @@ signals:
     void orderReserved(const QString& symbol, bool success, const QString& message);
     // 보유종목 종목코드 목록 (보유수량 > 0 인 종목)
     void holdingsReceived(const QStringList& symbols);
+    // 종목코드 → 보유수량 맵 (전량 버튼/수량 상한용)
+    void holdingQuantitiesReceived(const QHash<QString, int>& quantities);
     // 즉시주문 접수 결과
     void orderPlaced(const QString& symbol, bool isBuy, bool success, const QString& message);
     // 정정/취소 결과

@@ -18,6 +18,7 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QFormLayout>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputMethodEvent>
@@ -153,6 +154,10 @@ void MainWindow::setupConnections()
                 m_requestCoordinator->refreshStocks(symbols); // 실시간 시세 → updateUI가 보유 모델로 라우팅
         });
 
+    // 보유수량 맵 캐시 (전량 버튼/매도 수량 상한용)
+    connect(m_krApi, &KisAPI::holdingQuantitiesReceived, this,
+        [this](const QHash<QString, int>& quantities) { m_holdingQty = quantities; });
+
     // 즉시 매수/매도 접수 결과 알림
     connect(m_krApi, &KisAPI::orderPlaced, this,
         [this](const QString& symbol, bool isBuy, bool success, const QString& message)
@@ -242,6 +247,51 @@ void MainWindow::loadHoldings()
     }
 
     m_krApi->fetchBalance(); // 응답은 holdingsReceived → 보유 탭에 반영
+}
+
+void MainWindow::addSellQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form)
+{
+    // 캐시된 보유수량이 있으면 즉시 상한 적용
+    const int cached = m_holdingQty.value(symbol, -1);
+    if (cached > 0)
+        qtySpin->setMaximum(cached);
+
+    QPushButton* allBtn = new QPushButton("전량", dlg);
+    QHBoxLayout* qtyRow = new QHBoxLayout();
+    qtyRow->addWidget(qtySpin);
+    qtyRow->addWidget(allBtn);
+    form->addRow("수량", qtyRow);
+
+    QLabel* heldLabel = new QLabel(dlg);
+    form->addRow("", heldLabel);
+
+    auto held = std::make_shared<int>(cached);
+    auto applyHeld = [held, heldLabel, qtySpin]()
+    {
+        if (*held < 0) { heldLabel->setText("보유수량: 조회 중..."); return; }
+        heldLabel->setText(QString("보유수량: %1주 (이보다 많이 매도 불가)").arg(*held));
+        if (*held > 0)
+            qtySpin->setMaximum(*held); // 보유수량 상한 (초과 값은 자동 클램프)
+    };
+    applyHeld();
+
+    // 잔고 응답이 오면 상한/표시 갱신 (수명은 다이얼로그에 종속)
+    connect(m_krApi, &KisAPI::holdingQuantitiesReceived, dlg,
+        [held, applyHeld, symbol](const QHash<QString, int>& q)
+        {
+            *held = q.value(symbol, 0);
+            applyHeld();
+        });
+
+    // 전량 버튼 → 보유수량으로 채움
+    connect(allBtn, &QPushButton::clicked, dlg,
+        [held, qtySpin, dlg]()
+        {
+            if (*held > 0) qtySpin->setValue(*held);
+            else QMessageBox::information(dlg, "전량", "보유수량이 없거나 아직 조회되지 않았습니다.");
+        });
+
+    m_krApi->fetchBalance(); // 최신 보유수량 갱신
 }
 
 void MainWindow::onSearchClicked()
@@ -341,7 +391,7 @@ void MainWindow::reserveSellFor(StockTableModel* model, int row)
 
     QFormLayout* form = new QFormLayout();
     form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
-    form->addRow("수량", qtySpin);
+    addSellQtyRow(&dlg, symbol, qtySpin, form); // 수량 + 전량 버튼 + 보유수량 상한
     form->addRow("", marketCheck);
     form->addRow("지정가", priceSpin);
     form->addRow("", periodCheck);
@@ -429,7 +479,10 @@ void MainWindow::tradeDialog(StockTableModel* model, int row, bool isBuy)
 
     QFormLayout* form = new QFormLayout();
     form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
-    form->addRow("수량", qtySpin);
+    if (isBuy)
+        form->addRow("수량", qtySpin);             // 매수: 상한 없음 (주문가능현금 표시)
+    else
+        addSellQtyRow(&dlg, symbol, qtySpin, form); // 매도: 전량 버튼 + 보유수량 상한
     form->addRow("", marketCheck);
     form->addRow("지정가", priceSpin);
     if (cashLabel) form->addRow("", cashLabel);

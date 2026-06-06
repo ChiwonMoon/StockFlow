@@ -257,6 +257,7 @@ void KisAPI::onBalanceReceived(QNetworkReply* reply)
 
     // output1: 보유종목 배열. 보유수량(hldg_qty) > 0 인 종목코드(pdno)만 수집
     QStringList symbols;
+    QHash<QString, int> quantities;
     const QJsonArray holdings = obj["output1"].toArray();
     for (const QJsonValue& v : holdings)
     {
@@ -264,10 +265,14 @@ void KisAPI::onBalanceReceived(QNetworkReply* reply)
         const QString code = item["pdno"].toString();
         const int qty = item["hldg_qty"].toString().toInt();
         if (!code.isEmpty() && qty > 0)
+        {
             symbols << code;
+            quantities.insert(code, qty);
+        }
     }
 
     qDebug() << "KIS 보유종목 수신:" << symbols.size() << "개" << symbols;
+    emit holdingQuantitiesReceived(quantities);
     emit holdingsReceived(symbols);
 }
 
@@ -305,7 +310,7 @@ void KisAPI::placeOrder(const QString& symbol, bool isBuy, int quantity, double 
     body["ORD_DVSN"] = marketPrice ? "01" : "00";              // 00 지정가 / 01 시장가
     body["ORD_QTY"] = QString::number(quantity);
     body["ORD_UNPR"] = marketPrice ? "0" : QString::number(price, 'f', 0);
-    body["EXCG_ID_DVSN_CD"] = "KRX";                            // 거래소 (한국거래소)
+    body["EXCG_ID_DVSN_CD"] = "SOR";                            // 스마트주문(KRX+NXT 통합 최선호가)
 
     QNetworkReply* reply = manager->post(request, QJsonDocument(body).toJson());
     reply->setProperty("TargetSymbol", symbol);
@@ -368,7 +373,7 @@ void KisAPI::sendRvseCncl(const KisOpenOrder& order, const char* rvseCnclCd, int
     body["ORD_QTY"] = QString::number(qty);
     body["ORD_UNPR"] = QString::number(price, 'f', 0);
     body["QTY_ALL_ORD_YN"] = allQty ? "Y" : "N";              // 잔량 전부 여부
-    body["EXCG_ID_DVSN_CD"] = "KRX";
+    body["EXCG_ID_DVSN_CD"] = "SOR";                          // 원주문과 동일하게 SOR
 
     QNetworkReply* reply = manager->post(request, QJsonDocument(body).toJson());
     NetworkUtils::addTimeOut(reply, 15000);

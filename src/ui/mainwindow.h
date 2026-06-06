@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QSet>
+#include <QHash>
 #include "core/StockSymbolResolver.h"
 #include "core/StockListSettings.h"
 
@@ -20,6 +21,9 @@ class QPoint;
 class QTimer;
 class QStringListModel;
 class QTableView;
+class QDialog;
+class QSpinBox;
+class QFormLayout;
 class StockTableModel;
 class StartupCoordinator;
 class StockRequestCoordinator;
@@ -56,6 +60,7 @@ private:
     StockTableModel* m_stockModel = nullptr;        // 관심종목 탭
     StockTableModel* m_holdingsModel = nullptr;     // 보유종목 탭
     QSet<QString> m_holdingSymbols;                 // 보유종목 코드 집합 (시세 라우팅용)
+    QHash<QString, int> m_holdingQty;               // 종목 → 보유수량 (전량/상한용)
     QTimer* m_timer = nullptr;                    // 갱신타이머
     QStringListModel* m_searchModel = nullptr;
     QTimer* m_debounceTimer = nullptr;            // 검색지연타이머
@@ -69,6 +74,8 @@ private:
     void updateSearchCompleter();
     void performSearch();
     void loadHoldings();                                                    // 보유종목 탭 로드
+    // 매도 다이얼로그에 수량행(전량 버튼 + 보유수량 표시 + 보유수량 상한) 추가
+    void addSellQtyRow(QDialog* dlg, const QString& symbol, QSpinBox* qtySpin, QFormLayout* form);
     void showStockContextMenu(QTableView* view, StockTableModel* model, const QPoint& pos);
     void reserveSellFor(StockTableModel* model, int row);                  // 예약매도 다이얼로그
     void tradeDialog(StockTableModel* model, int row, bool isBuy);         // 즉시 매수/매도 다이얼로그
