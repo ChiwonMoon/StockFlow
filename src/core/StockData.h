@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <QString>
 #include <QPixmap>
 
@@ -15,6 +15,7 @@ struct StockData
 	double lowPrice;	// 저가
 	double prevClose;	// 전일 종가
 	long long volume;	// 거래량
+	double tickSize = 0;	// 호가단위(aspr_unit). 0이면 모름
 
 	// 변동률 계산 함수
 	double getChangePercentage() const

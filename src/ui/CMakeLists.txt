@@ -24,3 +24,6 @@ target_include_directories(stockflow_ui
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
+# 개발 빌드에서 tools/*.ps1 위치를 런타임에 찾을 수 있게 소스 경로를 박아둔다
+# (배포 시에는 실행파일 옆 tools/ 를 먼저 찾으므로 이 값은 폴백이다)
+target_compile_definitions(stockflow_ui PRIVATE STOCKFLOW_TOOLS_DIR="${CMAKE_SOURCE_DIR}/tools")

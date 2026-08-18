@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -51,6 +51,22 @@
     </property>
     <property name="text">
      <string>SOR 예약목록(앱)</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btnWinTasks">
+    <property name="geometry">
+     <rect>
+      <x>288</x>
+      <y>280</y>
+      <width>114</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>윈도우 작업 스케줄러에 등록된 예약매도 목록. 앱을 꺼도 발사됩니다.</string>
+    </property>
+    <property name="text">
+     <string>윈도우 예약목록</string>
     </property>
    </widget>
    <widget class="QTabWidget" name="tabWidget">

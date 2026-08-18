@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "StockAPI.h"
 #include <QStringList>
@@ -24,6 +24,23 @@ struct KisOpenOrder
 };
 
 // 호가 한 단계 (가격 + 잔량)
+// 잔고 한 종목의 매수/매도 현황 (주식잔고조회 output1 에서 뽑아둔 값)
+struct KisHoldingDetail
+{
+    QString symbol;
+    QString name;
+    int holdQty = 0;        // 보유수량
+    int ordPsblQty = 0;     // 주문가능수량 (걸어둔 매도주문만큼 줄어든다)
+    int todayBuyQty = 0;    // 당일 매수체결 수량
+    int todaySellQty = 0;   // 당일 매도체결 수량
+    int prevBuyQty = 0;     // 전일 매수수량
+    int prevSellQty = 0;    // 전일 매도수량
+    double avgPrice = 0;    // 매입평균가
+    double curPrice = 0;    // 현재가
+    double evalPnl = 0;     // 평가손익
+    double pnlRate = 0;     // 평가손익률(%)
+};
+
 struct KisAskRow
 {
     double price = 0;
@@ -83,6 +100,8 @@ signals:
     void holdingsReceived(const QStringList& symbols);
     // 종목코드 → 보유수량 맵 (전량 버튼/수량 상한용)
     void holdingQuantitiesReceived(const QHash<QString, int>& quantities);
+    // 종목 → 매수/매도 현황 (잔고조회 1회로 같이 넘어온다)
+    void holdingDetailsReceived(const QHash<QString, KisHoldingDetail>& details);
     // 즉시주문 접수 결과
     void orderPlaced(const QString& symbol, bool isBuy, bool success, const QString& message);
     // 정정/취소 결과

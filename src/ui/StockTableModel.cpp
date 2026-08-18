@@ -1,4 +1,4 @@
-#include "StockTableModel.h"
+﻿#include "StockTableModel.h"
 #include <QColor>
 #include <QLocale>
 
@@ -15,7 +15,27 @@ int StockTableModel::rowCount(const QModelIndex& parent) const
 int StockTableModel::columnCount(const QModelIndex& parent) const
 {
 	if (parent.isValid()) return 0;
-	return Column::ColumnCount;
+	// 관심종목 탭에는 수량/매입가/손익이 의미 없으므로 숨긴다
+	return m_holdingsMode ? Column::ColumnCount : (Column::Change + 1);
+}
+
+void StockTableModel::setHoldingsMode(bool on)
+{
+	if (m_holdingsMode == on) return;
+	beginResetModel();
+	m_holdingsMode = on;
+	endResetModel();
+}
+
+void StockTableModel::setHoldingDetails(const QHash<QString, KisHoldingDetail>& details)
+{
+	m_details = details;
+	if (!m_holdingsMode || m_data.empty()) return;
+
+	// 수량/매입가/손익 컬럼만 다시 그리게 한다
+	const QModelIndex topLeft = index(0, Column::Qty);
+	const QModelIndex bottomRight = index(static_cast<int>(m_data.size()) - 1, Column::Pnl);
+	emit dataChanged(topLeft, bottomRight);
 }
 
 bool StockTableModel::removeRow(int row, const QModelIndex& parent)
@@ -36,9 +56,12 @@ QVariant StockTableModel::headerData(int section, Qt::Orientation orientation, i
     {
         switch (section)
         {
-        case Column::Symbol: return "Symbol";
-        case Column::Price:  return "Price ($)";
-        case Column::Change: return "Change (%)";
+        case Column::Symbol:   return "Symbol";
+        case Column::Price:    return "Price ($)";
+        case Column::Change:   return "Change (%)";
+        case Column::Qty:      return "수량";
+        case Column::AvgPrice: return "매입가";
+        case Column::Pnl:      return "평가손익";
         default: return QVariant();
         }
     }
@@ -66,6 +89,31 @@ QVariant StockTableModel::data(const QModelIndex& index, int role) const
             double change = stock.getChangePercentage();
             return QString("%1%2%").arg(change > 0 ? "+" : "").arg(change, 0, 'f', 2);
         }
+        case Qty:
+        case AvgPrice:
+        case Pnl:
+        {
+            if (!m_details.contains(stock.symbol))
+                return "-";
+            const KisHoldingDetail& d = m_details.value(stock.symbol);
+            const QLocale loc = QLocale::system();
+
+            if (index.column() == Qty)
+            {
+                // 걸어둔 주문 때문에 주문가능수량이 적으면 같이 보여준다
+                if (d.ordPsblQty < d.holdQty)
+                    return QString("%1 (가능 %2)").arg(loc.toString(d.holdQty)).arg(loc.toString(d.ordPsblQty));
+                return loc.toString(d.holdQty);
+            }
+            if (index.column() == AvgPrice)
+                return loc.toString(d.avgPrice, 'f', 0);
+
+            return QString("%1%2 (%3%4%)")
+                .arg(d.evalPnl > 0 ? "+" : "")
+                .arg(loc.toString(d.evalPnl, 'f', 0))
+                .arg(d.pnlRate > 0 ? "+" : "")
+                .arg(d.pnlRate, 0, 'f', 2);
+        }
         }
     }
     // 이미지 표시 (DecorationRole - 로고)
@@ -85,6 +133,12 @@ QVariant StockTableModel::data(const QModelIndex& index, int role) const
             double change = stock.getChangePercentage();
             if (change > 0) return QColor(Qt::red);      // 상승: 빨강
             else if (change < 0) return QColor(Qt::blue); // 하락: 파랑
+        }
+        else if (index.column() == Pnl && m_details.contains(stock.symbol))
+        {
+            const double pnl = m_details.value(stock.symbol).evalPnl;
+            if (pnl > 0) return QColor(Qt::red);         // 이익: 빨강
+            else if (pnl < 0) return QColor(Qt::blue);   // 손실: 파랑
         }
     }
     // 텍스트 정렬 (TextAlignmentRole)
@@ -201,6 +255,12 @@ double StockTableModel::currentPriceAt(int row) const
 {
 	if (row < 0 || row >= static_cast<int>(m_data.size())) return 0.0;
 	return m_data[row].currentPrice;
+}
+
+double StockTableModel::tickSizeAt(int row) const
+{
+    if (row < 0 || row >= static_cast<int>(m_data.size())) return 0.0;
+    return m_data[row].tickSize;
 }
 
 bool StockTableModel::hasLogo(const QString& symbol) const

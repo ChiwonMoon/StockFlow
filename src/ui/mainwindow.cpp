@@ -12,6 +12,19 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QCompleter>
+#include <QCoreApplication>
+#include <QCursor>
+#include <cmath>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
+#include <QTime>
+#include <QUrl>
 #include <QDate>
 #include <QDateEdit>
 #include <QDateTime>
@@ -79,6 +92,7 @@ void MainWindow::setupTable()
 
     ui->tableView->setModel(m_stockModel);
     ui->holdingsView->setModel(m_holdingsModel);
+    m_holdingsModel->setHoldingsMode(true);   // 수량/매입가/평가손익 컬럼 표시
 
     for (QTableView* view : { ui->tableView, ui->holdingsView })
     {
@@ -108,6 +122,7 @@ void MainWindow::setupConnections()
     connect(ui->btnSearch, &QPushButton::clicked, this, &MainWindow::onSearchClicked);
     connect(ui->btnOpenOrders, &QPushButton::clicked, this, &MainWindow::onOpenOrdersClicked);
     connect(ui->btnSchedSells, &QPushButton::clicked, this, &MainWindow::onScheduledOrdersClicked);
+    connect(ui->btnWinTasks, &QPushButton::clicked, this, &MainWindow::onWindowsTasksClicked);
 
     // 우클릭 메뉴 (관심종목/보유종목 각 탭의 모델로 동작)
     connect(ui->tableView, &QTableView::customContextMenuRequested, this,
@@ -162,14 +177,26 @@ void MainWindow::setupConnections()
     connect(m_krApi, &KisAPI::holdingQuantitiesReceived, this,
         [this](const QHash<QString, int>& quantities) { m_holdingQty = quantities; });
 
+    // 매수/매도 현황 캐시 (잔고조회에 같이 실려 온다) + 보유종목 표에 반영
+    connect(m_krApi, &KisAPI::holdingDetailsReceived, this,
+        [this](const QHash<QString, KisHoldingDetail>& details)
+        {
+            m_holdingDetail = details;
+            m_holdingsModel->setHoldingDetails(details);
+        });
+
     // 즉시 매수/매도 접수 결과 알림
     connect(m_krApi, &KisAPI::orderPlaced, this,
         [this](const QString& symbol, bool isBuy, bool success, const QString& message)
         {
             const QString kind = isBuy ? "매수" : "매도";
             if (success)
+            {
                 QMessageBox::information(this, kind + " 접수",
                     QString("[%1] %2 주문이 접수되었습니다.\n%3").arg(symbol, kind, message));
+                // 주문이 들어가면 주문가능수량이 바로 줄어든다. 표를 맞춰준다.
+                refreshBalanceIfPossible();
+            }
             else
                 QMessageBox::warning(this, kind + " 실패",
                     QString("[%1] %2 주문 접수에 실패했습니다.\n%3").arg(symbol, kind, message));
@@ -239,14 +266,25 @@ void MainWindow::updateUI(const StockData& data)
 
 void MainWindow::onRefreshClicked()
 {
-    // 관심종목 + 보유종목 심볼 모두 갱신 (updateUI가 알맞은 탭으로 라우팅)
+    // 시세 갱신: 관심종목 + 보유종목 심볼 모두 (updateUI가 알맞은 탭으로 라우팅)
     QStringList symbols = m_stockModel->getAllSymbols();
     symbols += QStringList(m_holdingSymbols.begin(), m_holdingSymbols.end());
     symbols.removeDuplicates();
-    if (symbols.isEmpty())
-        return;
+    if (!symbols.isEmpty())
+        m_requestCoordinator->refreshStocks(symbols);
 
-    m_requestCoordinator->refreshStocks(symbols);
+    // 잔고 갱신: 수량/주문가능/매입가/평가손익은 시세가 아니라 잔고조회로만 들어온다.
+    // 이걸 안 부르면 보유종목 표의 그 칸들이 탭을 다시 누를 때까지 멈춰 있다.
+    refreshBalanceIfPossible();
+}
+
+// 계좌 설정이 되어 있을 때만 잔고를 부른다.
+// loadHoldings()는 미설정 시 경고창을 띄우므로 타이머에서 부르면 창이 계속 뜬다.
+void MainWindow::refreshBalanceIfPossible()
+{
+    if (Config::KIS_ACCOUNT_CANO.isEmpty() || Config::KIS_ACCOUNT_CANO.startsWith("여기에"))
+        return;
+    m_krApi->fetchBalance();
 }
 
 void MainWindow::loadHoldings()
@@ -375,9 +413,19 @@ void MainWindow::showStockContextMenu(QTableView* view, StockTableModel* model, 
     QAction* reserveSellAction = isKorean ? menu.addAction("예약매도 (KIS·KRX)") : nullptr;
     QAction* schedBuyAction = isKorean ? menu.addAction("SOR 예약매수 (앱·NXT포함)") : nullptr;
     QAction* schedSellAction = isKorean ? menu.addAction("SOR 예약매도 (앱·NXT포함)") : nullptr;
+    QAction* winSchedSellAction = isKorean ? menu.addAction("윈도우 예약매도 (앱꺼도OK·절전깨움)") : nullptr;
     QAction* askingPriceAction = isKorean ? menu.addAction("호가 (10호가)") : nullptr;
-    if (isKorean) menu.addSeparator();
-    QAction* deleteAction = menu.addAction("삭제 (delete)");
+    QAction* orderStatusAction = isKorean ? menu.addAction("매수매도현황") : nullptr;
+
+    // 보유종목 탭은 계좌에서 받아오는 목록이라 임의로 지우는 게 의미가 없다.
+    // (지워도 다음 조회 때 다시 올라온다) 그래서 삭제는 관심종목에서만 제공한다.
+    const bool isHoldingsView = (view == ui->holdingsView);
+    QAction* deleteAction = nullptr;
+    if (!isHoldingsView)
+    {
+        if (isKorean) menu.addSeparator();
+        deleteAction = menu.addAction("삭제 (delete)");
+    }
 
     // 메뉴 띄우고 기다림
     QAction* selectedItem = menu.exec(view->viewport()->mapToGlobal(pos));
@@ -393,9 +441,13 @@ void MainWindow::showStockContextMenu(QTableView* view, StockTableModel* model, 
         scheduleOrderDialog(model, row, true);
     else if (selectedItem == schedSellAction)
         scheduleOrderDialog(model, row, false);
+    else if (selectedItem == winSchedSellAction)
+        windowsScheduleSellDialog(model, row);
     else if (selectedItem == askingPriceAction)
         showAskingPrice(model, row);
-    else if (selectedItem == deleteAction)
+    else if (selectedItem == orderStatusAction)
+        showOrderStatus(model, row);
+    else if (deleteAction && selectedItem == deleteAction)
         model->removeRow(row);
 }
 
@@ -403,7 +455,7 @@ void MainWindow::reserveSellFor(StockTableModel* model, int row)
 {
     const QString symbol = model->symbolAt(row);
     const QString name = model->displayNameAt(row);
-    const double curPrice = model->currentPriceAt(row);
+    const double curPrice = currentPriceFor(model, row, symbol);
 
     // 계좌번호 미설정 방어 (placeholder 그대로면 주문 불가)
     if (Config::KIS_ACCOUNT_CANO.isEmpty() || Config::KIS_ACCOUNT_CANO.startsWith("여기에"))
@@ -426,10 +478,10 @@ void MainWindow::reserveSellFor(StockTableModel* model, int row)
 
     QSpinBox* priceSpin = new QSpinBox(&dlg);
     priceSpin->setRange(0, 1000000000);
-    priceSpin->setSingleStep(10);
     priceSpin->setGroupSeparatorShown(true);
     priceSpin->setSuffix(" 원");
     priceSpin->setValue(static_cast<int>(curPrice));
+    applyTick(priceSpin, model->tickSizeAt(row), curPrice);
 
     QCheckBox* periodCheck = new QCheckBox("기간예약 종료일 지정", &dlg);
     QDateEdit* endDateEdit = new QDateEdit(QDate::currentDate().addDays(1), &dlg);
@@ -483,7 +535,7 @@ void MainWindow::scheduleOrderDialog(StockTableModel* model, int row, bool isBuy
 {
     const QString symbol = model->symbolAt(row);
     const QString name = model->displayNameAt(row);
-    const double curPrice = model->currentPriceAt(row);
+    const double curPrice = currentPriceFor(model, row, symbol);
     const QString kind = isBuy ? "매수" : "매도";
 
     // 계좌번호 미설정 방어
@@ -506,10 +558,10 @@ void MainWindow::scheduleOrderDialog(StockTableModel* model, int row, bool isBuy
 
     QSpinBox* priceSpin = new QSpinBox(&dlg);
     priceSpin->setRange(0, 1000000000);
-    priceSpin->setSingleStep(10);
     priceSpin->setGroupSeparatorShown(true);
     priceSpin->setSuffix(" 원");
     priceSpin->setValue(static_cast<int>(curPrice));
+    applyTick(priceSpin, model->tickSizeAt(row), curPrice);
     connect(marketCheck, &QCheckBox::toggled, priceSpin, &QSpinBox::setDisabled);
 
     // 발사 시각 기본값: 다음 08:00 (NXT 프리마켓 시작)
@@ -735,11 +787,780 @@ void MainWindow::onScheduledOrdersClicked()
     dlg.exec();
 }
 
+// ==================== 윈도우 예약매도 (작업 스케줄러 연동) ====================
+// 앱 SOR 예약(m_scheduledOrders)은 이 앱이 떠 있어야 발사되지만, 이쪽은 등록만 해두면
+// 윈도우 작업 스케줄러가 tools/Invoke-ScheduledSell.ps1 을 직접 실행한다.
+// 따라서 앱을 꺼도, PC 가 절전 상태여도(-WakeToRun) 발사된다.
+// 예약 정보는 앱이 보관하지 않는다. 작업 스케줄러가 유일한 저장소다.
+
+QString MainWindow::toolsScriptPath(const QString& fileName)
+{
+    QStringList candidates;
+    const QString appDir = QCoreApplication::applicationDirPath();
+
+    // 배포 레이아웃: 실행파일 옆 tools/
+    candidates << appDir + "/tools/" + fileName;
+
+    // 빌드 트리에서 실행하는 경우: 상위로 올라가며 저장소 루트의 tools/ 를 찾는다
+    QDir dir(appDir);
+    for (int i = 0; i < 6; ++i)
+    {
+        candidates << dir.absoluteFilePath("tools/" + fileName);
+        if (!dir.cdUp())
+            break;
+    }
+
+#ifdef STOCKFLOW_TOOLS_DIR
+    candidates << QString(STOCKFLOW_TOOLS_DIR) + "/" + fileName; // 빌드 시점에 박아둔 소스 경로
+#endif
+
+    for (const QString& c : candidates)
+    {
+        if (QFileInfo::exists(c))
+            return QDir::cleanPath(c);
+    }
+    return QString();
+}
+
+bool MainWindow::runToolScript(const QString& scriptPath, const QStringList& scriptArgs,
+                               QString* output, int timeoutMs)
+{
+    QStringList args;
+    args << "-NoProfile" << "-NonInteractive" << "-ExecutionPolicy" << "Bypass"
+         << "-File" << QDir::toNativeSeparators(scriptPath);
+    args += scriptArgs;
+
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start("powershell.exe", args);
+
+    if (!proc.waitForStarted(5000))
+    {
+        if (output) *output = "powershell.exe 를 실행할 수 없습니다.";
+        return false;
+    }
+    if (!proc.waitForFinished(timeoutMs))
+    {
+        proc.kill();
+        proc.waitForFinished(2000);
+        if (output) *output = "스크립트 응답이 시간 내에 오지 않았습니다.";
+        return false;
+    }
+
+    // 스크립트가 첫머리에서 stdout 을 UTF-8 로 고정해둔다
+    if (output)
+        *output = QString::fromUtf8(proc.readAll()).trimmed();
+
+    return proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+}
+
+void MainWindow::windowsScheduleSellDialog(StockTableModel* model, int row)
+{
+    const QString symbol = model->symbolAt(row);
+    const QString name = model->displayNameAt(row);
+    const double curPrice = currentPriceFor(model, row, symbol);
+
+    // 계좌번호 미설정 방어
+    if (Config::KIS_ACCOUNT_CANO.isEmpty() || Config::KIS_ACCOUNT_CANO.startsWith("여기에"))
+    {
+        QMessageBox::warning(this, "설정 필요",
+            "Config.h의 KIS_ACCOUNT_CANO(종합계좌번호 앞 8자리)를 먼저 설정하세요.");
+        return;
+    }
+
+    const QString script = toolsScriptPath("Register-SellTask.ps1");
+    if (script.isEmpty())
+    {
+        QMessageBox::warning(this, "스크립트 없음",
+            "tools/Register-SellTask.ps1 을 찾을 수 없습니다.\n"
+            "저장소의 tools 폴더가 실행파일 근처에 있어야 합니다.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("윈도우 예약매도 (앱 꺼도 실행)");
+
+    QSpinBox* qtySpin = new QSpinBox(&dlg);
+    qtySpin->setRange(1, 1000000);
+    qtySpin->setValue(1);
+    qtySpin->setSuffix(" 주");
+
+    const double tick = model->tickSizeAt(row);
+
+    QSpinBox* targetSpin = new QSpinBox(&dlg);
+    targetSpin->setRange(1, 1000000000);
+    targetSpin->setGroupSeparatorShown(true);
+    targetSpin->setSuffix(" 원");
+    if (curPrice > 0)
+        targetSpin->setValue(static_cast<int>(curPrice));
+    applyTick(targetSpin, tick, curPrice);
+
+    // 아직 시세가 없으면 잔고조회 응답이 올 때 현재가로 채워준다
+    // (addSellQtyRow 가 이미 fetchBalance 를 호출해 둔다)
+    if (curPrice <= 0)
+    {
+        targetSpin->setSpecialValueText("시세 조회 중...");
+        connect(m_krApi, &KisAPI::holdingDetailsReceived, &dlg,
+            [targetSpin, symbol, tick](const QHash<QString, KisHoldingDetail>& d)
+            {
+                if (!d.contains(symbol)) return;
+                const double px = d.value(symbol).curPrice;
+                if (px <= 0) return;
+                targetSpin->setSpecialValueText(QString());
+                targetSpin->setValue(static_cast<int>(px));
+                applyTick(targetSpin, tick, px);
+            });
+    }
+
+    // 발사 시각 기본값: 다음 08:00 (NXT 프리마켓 시작)
+    const QDateTime now = QDateTime::currentDateTime();
+    QDateTime next8(now.date(), QTime(8, 0));
+    if (now.time() >= QTime(8, 0))
+        next8 = next8.addDays(1);
+    QDateTimeEdit* fireEdit = new QDateTimeEdit(next8, &dlg);
+    fireEdit->setDisplayFormat("yyyy-MM-dd HH:mm");
+    fireEdit->setCalendarPopup(true);
+
+    // 호가 추격은 '매수 1호가 < 목표가'가 되면 알아서 끝난다. 이 값은 그 조건이
+    // 오지 않을 때를 대비한 상한이다.
+    QSpinBox* chaseSpin = new QSpinBox(&dlg);
+    chaseSpin->setRange(1, 600);
+    chaseSpin->setValue(60);
+    chaseSpin->setSuffix(" 분");
+    chaseSpin->setToolTip("매수 1호가가 목표가 이상인 동안 계속 추격합니다.\n"
+                          "이 시간이 지나면 남은 수량을 목표가에 걸어두고 끝냅니다.");
+
+    QSpinBox* retrySpin = new QSpinBox(&dlg);
+    retrySpin->setRange(0, 100);
+    retrySpin->setValue(10);
+    retrySpin->setSuffix(" 회 (1분 간격)");
+
+    // 발사 시각 기준 전량. 지금 수량을 고정하는 대신 그때 보유수량을 다시 조회한다.
+    QCheckBox* allCheck = new QCheckBox("발사 시각의 보유 전량", &dlg);
+    connect(allCheck, &QCheckBox::toggled, qtySpin, &QSpinBox::setDisabled);
+    allCheck->setChecked(true);   // 전량 매도가 기본. 수량칸은 자동으로 비활성화된다
+
+    // 며칠 동안 매일 같은 시각에 반복할지. 1이면 그날 한 번만.
+    QSpinBox* repeatSpin = new QSpinBox(&dlg);
+    repeatSpin->setRange(1, 365);
+    repeatSpin->setValue(1);
+    repeatSpin->setSuffix(" 일 (1이면 1회만)");
+
+    QCheckBox* dryRunCheck = new QCheckBox("테스트 실행 (주문 없이 판단만 로그로 기록)", &dlg);
+
+    QFormLayout* form = new QFormLayout();
+    form->addRow("종목", new QLabel(QString("%1 (%2)").arg(name, symbol), &dlg));
+    addSellQtyRow(&dlg, symbol, qtySpin, form);   // 수량 + 전량 버튼 + 보유수량 상한
+    form->addRow("", allCheck);
+    targetSpin->setToolTip("이 가격 미만의 매수호가에는 팔지 않습니다.\n"
+                           "목표가 이상 호가에는 그 호가 가격으로 매도합니다.");
+    form->addRow("목표가", targetSpin);
+    form->addRow("발사 시각", fireEdit);
+    form->addRow("반복 일수", repeatSpin);
+    form->addRow("호가 추격 상한", chaseSpin);
+    form->addRow("주문거부 재시도", retrySpin);
+    form->addRow("", dryRunCheck);
+
+    QLabel* hint = new QLabel(
+        "※ 앱을 꺼도 실행됩니다. PC 가 절전이면 깨워서 발사합니다.\n"
+        "   단, PC 전원이 완전히 꺼져 있으면 발사되지 않습니다.\n"
+        "   목표가 이상인 매수호가에 그 호가 가격 그대로 매도를 냅니다.\n"
+        "   안 팔리면 취소하고 호가를 다시 읽어 재주문하며, 매수 1호가가\n"
+        "   목표가 밑으로 내려갈 때까지 계속 추격합니다.\n"
+        "   추격이 끝나고 남은 수량은 목표가에 걸어둡니다.\n"
+        "   통신이 끊기면 10초마다 재접속하며, 주문 접수 여부를 확인한 뒤에만\n"
+        "   재전송합니다(이중 매도 방지).\n"
+        "   SOR(KRX+NXT 통합)로 나가므로 NXT 프리마켓에서도 체결됩니다.", &dlg);
+    hint->setStyleSheet("color: gray;");
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addLayout(form);
+    layout->addWidget(hint);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    const bool sellAll = allCheck->isChecked();
+    const int repeatDays = repeatSpin->value();
+    const bool dryRun = dryRunCheck->isChecked();
+    const QDateTime fire = fireEdit->dateTime();
+
+    // 발사 시각이 과거면 거부 (스크립트도 막지만 여기서 먼저 알려준다)
+    if (fire <= QDateTime::currentDateTime())
+    {
+        QMessageBox::warning(this, "시각 오류", "발사 시각이 이미 지났습니다. 미래 시각으로 지정하세요.");
+        return;
+    }
+
+    const QLocale loc = QLocale::system();
+    const QString qtyText = sellAll ? QString("보유 전량") : QString("%1주").arg(qtySpin->value());
+    const QString repeatText = (repeatDays > 1)
+        ? QString(" (매일 반복, %1일간 ~ %2)")
+              .arg(repeatDays).arg(fire.date().addDays(repeatDays - 1).toString("yyyy-MM-dd"))
+        : QString(" (1회)");
+    const QString confirmMsg =
+        QString("[확인] 윈도우 예약매도 등록 (실전 계좌)\n\n"
+                "종목: %1 (%2)\n수량: %3\n목표가: %4원\n발사: %5%6\n"
+                "\n목표가 이상 매수호가에 그 호가 가격으로 매도하고,\n"
+                "매수 1호가가 목표가 밑으로 갈 때까지 추격합니다(최대 %7분).\n"
+                "목표가 아래로는 절대 팔지 않습니다.\n%8\n등록할까요?")
+            .arg(name, symbol, qtyText,
+                 loc.toString(targetSpin->value()),
+                 fire.toString("yyyy-MM-dd HH:mm"),
+                 repeatText)
+            .arg(chaseSpin->value())
+            .arg(dryRun ? "\n※ 테스트 실행이라 실제 주문은 나가지 않습니다.\n" : "");
+
+    if (QMessageBox::warning(this, "윈도우 예약 확인", confirmMsg,
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    QStringList args;
+    args << "-At" << fire.toString("yyyy-MM-dd HH:mm")
+         << "-Symbol" << symbol
+         << "-Quantity" << (sellAll ? QString("All") : QString::number(qtySpin->value()))
+         << "-TargetPrice" << QString::number(
+                alignToTick(targetSpin->value(), resolveTick(targetSpin->value(), curPrice, tick)))
+         << "-MaxRetries" << QString::number(retrySpin->value())
+         << "-ChaseMinutes" << QString::number(chaseSpin->value())
+         << "-RepeatDays" << QString::number(repeatDays);
+    if (dryRun) args << "-DryRun";
+
+    QString out;
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool ok = runToolScript(script, args, &out);
+    QGuiApplication::restoreOverrideCursor();
+
+    if (ok)
+        QMessageBox::information(this, "등록 완료", out.isEmpty() ? QString("예약이 등록되었습니다.") : out);
+    else
+        QMessageBox::critical(this, "등록 실패", out.isEmpty() ? QString("예약 등록에 실패했습니다.") : out);
+}
+
+void MainWindow::onWindowsTasksClicked()
+{
+    const QString script = toolsScriptPath("Register-SellTask.ps1");
+    if (script.isEmpty())
+    {
+        QMessageBox::warning(this, "스크립트 없음", "tools/Register-SellTask.ps1 을 찾을 수 없습니다.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("윈도우 예약목록 (작업 스케줄러)");
+    dlg.resize(820, 340);
+
+    QTableWidget* table = new QTableWidget(0, 7, &dlg);
+    table->setHorizontalHeaderLabels({ "종목", "수량", "목표가", "반복", "다음실행", "상태", "비고" });
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+
+    // 행 인덱스 → 작업 이름 (취소할 때 필요). 다이얼로그 수명 동안만 유지된다.
+    auto taskNames = std::make_shared<QStringList>();
+
+    auto refresh = [this, table, taskNames, script]()
+    {
+        QString out;
+        if (!runToolScript(script, QStringList() << "-List" << "-Json", &out, 20000))
+        {
+            QMessageBox::warning(table->window(), "조회 실패",
+                out.isEmpty() ? QString("예약 목록을 불러오지 못했습니다.") : out);
+            return;
+        }
+
+        // PowerShell 5.1 은 원소가 1개면 배열을 객체로 접어버리므로 둘 다 받아준다
+        const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+        QJsonArray arr;
+        if (doc.isArray())        arr = doc.array();
+        else if (doc.isObject())  arr.append(doc.object());
+
+        const QLocale loc = QLocale::system();
+        taskNames->clear();
+        table->setRowCount(arr.size());
+
+        for (int i = 0; i < arr.size(); ++i)
+        {
+            const QJsonObject o = arr.at(i).toObject();
+            const QString sym = o["Symbol"].toString();
+            QString nm = StockCodeMap::getName(sym);
+            if (nm.isEmpty()) nm = sym;
+            taskNames->append(o["TaskName"].toString());
+
+            const QString qty = o["Quantity"].toString();
+            const bool isAll = (qty.compare("All", Qt::CaseInsensitive) == 0);
+
+            table->setItem(i, 0, new QTableWidgetItem(QString("%1 (%2)").arg(nm, sym)));
+            table->setItem(i, 1, new QTableWidgetItem(isAll ? QString("전량") : qty + "주"));
+            table->setItem(i, 2, new QTableWidgetItem(loc.toString(o["TargetPrice"].toString().toDouble(), 'f', 0)));
+            const QString until = o["RepeatUntil"].toString();
+            table->setItem(i, 3, new QTableWidgetItem(
+                o["Daily"].toBool() ? (until.isEmpty() ? QString("매일") : QString("~%1").arg(until))
+                                    : QString("1회")));
+            const QString nextRun = o["NextRunTime"].toString();
+            table->setItem(i, 4, new QTableWidgetItem(nextRun.isEmpty() ? QString("-") : nextRun));
+
+            // 스크립트가 계산해준 사람이 읽을 상태를 쓴다.
+            // (스케줄러 원본 State 는 1회 예약이 끝나도 Ready 로 남아 오해를 준다)
+            QString status = o["Status"].toString();
+            if (status.isEmpty()) status = o["State"].toString();
+            QTableWidgetItem* statusItem = new QTableWidgetItem(status);
+            if (status.startsWith("완료(실패")) statusItem->setForeground(QColor(Qt::red));
+            else if (status.startsWith("완료"))  statusItem->setForeground(QColor(0, 128, 0));
+            table->setItem(i, 5, statusItem);
+
+            QStringList notes;
+            if (o["DryRun"].toBool()) notes << "테스트";
+            const QString lastRun = o["LastRunTime"].toString();
+            if (!lastRun.isEmpty())
+            {
+                notes << QString("최근 %1 %2")
+                    .arg(lastRun, o["LastTaskResult"].toInt() == 0 ? "성공" : "실패");
+            }
+            table->setItem(i, 6, new QTableWidgetItem(notes.join(" / ")));
+        }
+    };
+    refresh();
+
+    QPushButton* cancelBtn = new QPushButton("선택 취소", &dlg);
+    connect(cancelBtn, &QPushButton::clicked, &dlg, [this, table, taskNames, refresh, script]()
+    {
+        const int r = table->currentRow();
+        if (r < 0 || r >= taskNames->size())
+        {
+            QMessageBox::information(table->window(), "취소", "예약을 선택하세요.");
+            return;
+        }
+        const QString taskName = taskNames->at(r);
+        if (QMessageBox::question(table->window(), "예약 취소",
+                QString("이 예약을 삭제할까요?\n\n%1").arg(taskName),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            return;
+
+        QString out;
+        if (!runToolScript(script, QStringList() << "-Remove" << "-TaskName" << taskName, &out, 20000))
+        {
+            QMessageBox::warning(table->window(), "취소 실패",
+                out.isEmpty() ? QString("예약을 삭제하지 못했습니다.") : out);
+        }
+        refresh();
+    });
+
+    QPushButton* refreshBtn = new QPushButton("새로고침", &dlg);
+    connect(refreshBtn, &QPushButton::clicked, &dlg, [refresh]() { refresh(); });
+
+    // 끝난 1회 예약은 스케줄러에 그대로 남는다. 쌓이면 목록을 읽기 어려우니 한 번에 지운다.
+    QPushButton* purgeBtn = new QPushButton("완료 항목 정리", &dlg);
+    connect(purgeBtn, &QPushButton::clicked, &dlg, [this, table, refresh, script]()
+    {
+        QStringList done;
+        for (int r = 0; r < table->rowCount(); ++r)
+        {
+            QTableWidgetItem* st = table->item(r, 5);
+            QTableWidgetItem* nm = table->item(r, 0);
+            if (st && nm && st->text().startsWith("완료"))
+                done << nm->text();
+        }
+        if (done.isEmpty())
+        {
+            QMessageBox::information(table->window(), "정리", "완료된 예약이 없습니다.");
+            return;
+        }
+        if (QMessageBox::question(table->window(), "완료 항목 정리",
+                QString("완료된 예약 %1건을 목록에서 지울까요?\n(이미 나간 주문은 취소되지 않습니다)")
+                    .arg(done.size()),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            return;
+
+        // 표에는 종목명이 그려져 있으므로 작업 이름은 다시 조회해서 지운다
+        QString listOut;
+        if (runToolScript(script, QStringList() << "-List" << "-Json", &listOut, 20000))
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(listOut.toUtf8());
+            QJsonArray arr;
+            if (doc.isArray())       arr = doc.array();
+            else if (doc.isObject()) arr.append(doc.object());
+
+            for (const QJsonValue& v : arr)
+            {
+                const QJsonObject o = v.toObject();
+                if (!o["Status"].toString().startsWith("완료")) continue;
+                QString out;
+                runToolScript(script, QStringList() << "-Remove" << "-TaskName" << o["TaskName"].toString(),
+                              &out, 20000);
+            }
+        }
+        refresh();
+    });
+
+    // 조용히 실패했을 때 원인을 볼 수 있는 유일한 통로라 바로 열 수 있게 해둔다
+    QPushButton* logBtn = new QPushButton("로그 폴더", &dlg);
+    connect(logBtn, &QPushButton::clicked, &dlg, [this, script]()
+    {
+        const QString logDir = QFileInfo(script).absolutePath() + "/logs";
+        if (!QFileInfo::exists(logDir))
+        {
+            QMessageBox::information(this, "로그", "아직 실행 기록이 없습니다.");
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(logDir));
+    });
+
+    QPushButton* closeBtn = new QPushButton("닫기", &dlg);
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    QLabel* note = new QLabel(
+        "※ 이 목록은 윈도우 작업 스케줄러가 보관합니다. 앱을 꺼도 유지되고 발사됩니다.\n"
+        "※ '완료'는 예약이 발사됐다는 뜻입니다. 주문 체결 여부는 매수매도현황에서 확인하세요.", &dlg);
+    note->setStyleSheet("color: gray;");
+
+    QHBoxLayout* btnRow = new QHBoxLayout();
+    btnRow->addWidget(cancelBtn);
+    btnRow->addWidget(purgeBtn);
+    btnRow->addWidget(refreshBtn);
+    btnRow->addWidget(logBtn);
+    btnRow->addStretch();
+    btnRow->addWidget(closeBtn);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(table);
+    layout->addWidget(note);
+    layout->addLayout(btnRow);
+
+    dlg.exec();
+}
+
+// 가격 입력칸을 호가단위(틱)에 맞춰준다. 스텝을 틱으로 놓고 현재 값도 틱 배수로 스냅한다.
+// 틱에 안 맞는 가격으로 주문하면 KIS 가 '주식주문 호가단위 오류'로 거부한다.
+void MainWindow::applyTick(QSpinBox* priceSpin, double tick, double currentPrice)
+{
+    if (!priceSpin) return;
+    if (tick <= 0)
+    {
+        priceSpin->setSingleStep(10);   // 호가단위를 모르면 기존 동작 유지
+        return;
+    }
+
+    // 값이 가격 구간을 넘나들면 호가단위도 바뀌므로 스텝/표시를 따라가게 한다
+    // (ETF 처럼 구간이 없는 종목은 resolveTick 이 항상 같은 값을 돌려준다)
+    auto sync = [priceSpin, tick, currentPrice]()
+    {
+        const int step = static_cast<int>(resolveTick(priceSpin->value(), currentPrice, tick));
+        if (priceSpin->singleStep() != step)
+        {
+            priceSpin->setSingleStep(step);
+            priceSpin->setSuffix(QString(" 원 (호가 %1)").arg(step));
+        }
+    };
+    QObject::connect(priceSpin, QOverload<int>::of(&QSpinBox::valueChanged), priceSpin,
+                     [sync](int) { sync(); });
+
+    priceSpin->setValue(alignToTick(priceSpin->value(), resolveTick(priceSpin->value(), currentPrice, tick)));
+    sync();
+}
+
+// 호가단위는 '현재가'가 아니라 '주문 가격'으로 정해진다.
+// 현재가 163,100원(틱 100)인 종목도 210,200원에 주문하면 20만원 구간이라 틱이 500이다.
+// 실제 API(aspr_unit)로 확인한 구간: ~20,000=10 / ~50,000=50 / ~200,000=100
+//                                   / ~500,000=500 / 그 이상=1,000
+double MainWindow::tickForPrice(double price)
+{
+    if (price < 2000)   return 1;
+    if (price < 5000)   return 5;
+    if (price < 20000)  return 10;
+    if (price < 50000)  return 50;
+    if (price < 200000) return 100;
+    if (price < 500000) return 500;
+    return 1000;
+}
+
+// 주문 가격의 호가단위를 정한다.
+// 일반주식은 가격 구간표를 따르지만 ETF/ETN 은 가격과 무관하게 5원이다.
+// 그래서 '현재가에서 API 가 알려준 틱'이 구간표 예측과 다르면 주식이 아니라고 보고
+// 그 값을 그대로 쓴다. (ETF 는 구간이 없으니 모든 가격에 같은 틱이 유효하다)
+double MainWindow::resolveTick(double orderPrice, double currentPrice, double measuredTick)
+{
+    if (measuredTick > 0 && currentPrice > 0 && measuredTick != tickForPrice(currentPrice))
+        return measuredTick;    // ETF/ETN 등 구간표를 안 따르는 종목
+    return tickForPrice(orderPrice);
+}
+
+// 내림 한 번으로 끝낸다. 틱을 제대로 골랐다면 이걸로 유효한 가격이 되고,
+// 입력값에서 벗어나는 폭도 한 틱 미만이다.
+int MainWindow::alignToTick(double price, double tick)
+{
+    if (tick <= 0) return static_cast<int>(qRound(price));
+    double down = std::floor(price / tick) * tick;
+    if (down <= 0) down = tick;   // 가격이 한 틱보다 작으면 최소 한 틱
+    return static_cast<int>(qRound(down));
+}
+
+// 정정 다이얼로그처럼 행 정보가 없는 곳에서 종목코드로 호가단위를 찾는다
+double MainWindow::tickForSymbol(const QString& symbol) const
+{
+    for (StockTableModel* m : { m_stockModel, m_holdingsModel })
+    {
+        if (!m) continue;
+        for (int r = 0; r < m->rowCount(); ++r)
+        {
+            if (m->symbolAt(r) != symbol) continue;
+            const double tk = m->tickSizeAt(r);
+            if (tk > 0) return tk;
+        }
+    }
+    return 0.0;
+}
+
+// 다이얼로그에 채울 현재가를 구한다.
+// 관심종목 표는 시세를 받아야 값이 차는데, 보유종목 탭을 막 열었거나 시세가 아직
+// 도착하지 않았으면 0 이 나온다. 그대로 스핀박스에 넣으면 범위 최솟값(1원)으로
+// 눌려버려서 "목표가가 1원"으로 보인다. 잔고조회로 받아둔 현재가를 대신 쓴다.
+double MainWindow::currentPriceFor(StockTableModel* model, int row, const QString& symbol) const
+{
+    const double fromModel = model ? model->currentPriceAt(row) : 0.0;
+    if (fromModel > 0) return fromModel;
+
+    if (m_holdingDetail.contains(symbol))
+    {
+        const double fromBalance = m_holdingDetail.value(symbol).curPrice;
+        if (fromBalance > 0) return fromBalance;
+    }
+    return 0.0;
+}
+
+void MainWindow::showOrderStatus(StockTableModel* model, int row)
+{
+    const QString symbol = model->symbolAt(row);
+    const QString name = model->displayNameAt(row);
+
+    if (Config::KIS_ACCOUNT_CANO.isEmpty() || Config::KIS_ACCOUNT_CANO.startsWith("여기에"))
+    {
+        QMessageBox::warning(this, "설정 필요",
+            "Config.h의 KIS_ACCOUNT_CANO(종합계좌번호 앞 8자리)를 먼저 설정하세요.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("매수매도현황 - %1 (%2)").arg(name, symbol));
+    dlg.resize(660, 400);
+
+    QLabel* summary = new QLabel(&dlg);
+    summary->setTextFormat(Qt::RichText);
+    summary->setText("잔고 조회 중...");
+
+    QTableWidget* table = new QTableWidget(0, 5, &dlg);
+    table->setHorizontalHeaderLabels({ "구분", "주문번호", "주문수량", "미체결", "주문단가" });
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+
+    QLabel* ordersLabel = new QLabel("미체결 주문 (조회 중...)", &dlg);
+
+    // 표에 그려진 순서 그대로 보관해야 '선택한 행 -> 주문'을 짚을 수 있다
+    auto shown = std::make_shared<QList<KisOpenOrder>>();
+
+    // 잔고에서 온 현황을 요약 줄로 그린다
+    auto applySummary = [this, symbol, summary]()
+    {
+        if (!m_holdingDetail.contains(symbol))
+        {
+            summary->setText("<b>이 종목의 잔고 정보가 없습니다.</b> (보유하고 있지 않거나 조회 전)");
+            return;
+        }
+        const KisHoldingDetail& d = m_holdingDetail.value(symbol);
+        const QLocale loc = QLocale::system();
+        const QString pnlColor = d.evalPnl >= 0 ? "red" : "blue";
+
+        summary->setText(QString(
+            "<table cellspacing='6'>"
+            "<tr><td><b>보유수량</b></td><td>%1주</td>"
+            "    <td><b>주문가능</b></td><td>%2주</td></tr>"
+            "<tr><td><b>당일 매수</b></td><td>%3주</td>"
+            "    <td><b>당일 매도</b></td><td>%4주</td></tr>"
+            "<tr><td><b>전일 매수</b></td><td>%5주</td>"
+            "    <td><b>전일 매도</b></td><td>%6주</td></tr>"
+            "<tr><td><b>매입평균</b></td><td>%7원</td>"
+            "    <td><b>현재가</b></td><td>%8원</td></tr>"
+            "<tr><td><b>평가손익</b></td>"
+            "    <td colspan='3'><font color='%9'>%10원 (%11%)</font></td></tr>"
+            "</table>")
+            .arg(loc.toString(d.holdQty)).arg(loc.toString(d.ordPsblQty))
+            .arg(loc.toString(d.todayBuyQty)).arg(loc.toString(d.todaySellQty))
+            .arg(loc.toString(d.prevBuyQty)).arg(loc.toString(d.prevSellQty))
+            .arg(loc.toString(d.avgPrice, 'f', 0)).arg(loc.toString(d.curPrice, 'f', 0))
+            .arg(pnlColor).arg(loc.toString(d.evalPnl, 'f', 0)).arg(d.pnlRate, 0, 'f', 2));
+
+        // 보유수량과 주문가능수량이 다르면 그 차이만큼 주문이 물려 있다는 뜻이라 짚어준다
+        if (d.ordPsblQty < d.holdQty)
+        {
+            summary->setText(summary->text() +
+                QString("<font color='gray'>※ %1주는 아래 미체결 주문에 묶여 있어 추가 매도가 불가합니다.</font>")
+                    .arg(d.holdQty - d.ordPsblQty));
+        }
+    };
+    applySummary();
+
+    // 이 종목의 미체결 주문만 추린다 (매수/매도 모두)
+    auto applyOrders = [table, ordersLabel, symbol, shown](const QList<KisOpenOrder>& orders)
+    {
+        const QLocale loc = QLocale::system();
+        QList<KisOpenOrder> mine;
+        for (const KisOpenOrder& o : orders)
+        {
+            if (o.symbol == symbol)
+                mine << o;
+        }
+        *shown = mine;
+
+        table->setRowCount(mine.size());
+        for (int i = 0; i < mine.size(); ++i)
+        {
+            const KisOpenOrder& o = mine.at(i);
+            QTableWidgetItem* kind = new QTableWidgetItem(o.isBuy ? "매수" : "매도");
+            kind->setForeground(o.isBuy ? QColor(Qt::red) : QColor(Qt::blue));
+            table->setItem(i, 0, kind);
+            table->setItem(i, 1, new QTableWidgetItem(o.orderNo));
+            table->setItem(i, 2, new QTableWidgetItem(loc.toString(o.orderQty)));
+            table->setItem(i, 3, new QTableWidgetItem(loc.toString(o.possibleQty)));
+            table->setItem(i, 4, new QTableWidgetItem(loc.toString(o.orderPrice, 'f', 0)));
+        }
+        ordersLabel->setText(mine.isEmpty() ? "미체결 주문 없음"
+                                            : QString("미체결 주문 %1건").arg(mine.size()));
+    };
+
+    // 다이얼로그가 살아있는 동안만 갱신을 받는다
+    connect(m_krApi, &KisAPI::holdingDetailsReceived, &dlg,
+        [this, applySummary](const QHash<QString, KisHoldingDetail>& details)
+        {
+            m_holdingDetail = details;
+            applySummary();
+        });
+    connect(m_krApi, &KisAPI::openOrdersReceived, &dlg, applyOrders);
+
+    // 정정/취소 결과 -> 알림 후 목록 갱신
+    connect(m_krApi, &KisAPI::orderModified, &dlg,
+        [this, &dlg](bool success, const QString& message)
+        {
+            if (success)
+                QMessageBox::information(&dlg, "정정/취소", "처리되었습니다.\n" + message);
+            else
+                QMessageBox::warning(&dlg, "정정/취소 실패", message);
+            m_krApi->fetchOpenOrders();
+            m_krApi->fetchBalance();
+        });
+
+    auto selectedOrder = [table, shown]() -> const KisOpenOrder*
+    {
+        const int r = table->currentRow();
+        if (r < 0 || r >= shown->size()) return nullptr;
+        return &(*shown)[r];
+    };
+
+    QPushButton* cancelOrderBtn = new QPushButton("주문 취소", &dlg);
+    connect(cancelOrderBtn, &QPushButton::clicked, &dlg, [this, &dlg, selectedOrder]()
+    {
+        const KisOpenOrder* o = selectedOrder();
+        if (!o) { QMessageBox::information(&dlg, "주문 취소", "주문을 선택하세요."); return; }
+        if (QMessageBox::warning(&dlg, "주문 취소",
+                QString("[%1] %2 %3주 (%4원) 주문을 취소할까요?")
+                    .arg(o->name, o->isBuy ? "매수" : "매도")
+                    .arg(o->possibleQty)
+                    .arg(QLocale::system().toString(o->orderPrice, 'f', 0)),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes)
+            m_krApi->cancelOrder(*o);
+    });
+
+    QPushButton* reviseOrderBtn = new QPushButton("주문 정정", &dlg);
+    connect(reviseOrderBtn, &QPushButton::clicked, &dlg, [this, &dlg, selectedOrder]()
+    {
+        const KisOpenOrder* o = selectedOrder();
+        if (!o) { QMessageBox::information(&dlg, "주문 정정", "주문을 선택하세요."); return; }
+
+        QDialog rd(&dlg);
+        rd.setWindowTitle("주문 정정");
+
+        QSpinBox* q = new QSpinBox(&rd);
+        q->setRange(1, o->possibleQty);
+        q->setValue(o->possibleQty);
+        q->setSuffix(" 주");
+
+        const double rtick = tickForSymbol(o->symbol);
+        QSpinBox* pr = new QSpinBox(&rd);
+        pr->setRange(0, 1000000000);
+        pr->setGroupSeparatorShown(true);
+        pr->setSuffix(" 원");
+        pr->setValue(static_cast<int>(o->orderPrice));
+        applyTick(pr, rtick, o->orderPrice);
+
+        QFormLayout* f = new QFormLayout();
+        f->addRow("주문", new QLabel(QString("%1 %2주 @ %3원")
+            .arg(o->isBuy ? "매수" : "매도")
+            .arg(o->possibleQty)
+            .arg(QLocale::system().toString(o->orderPrice, 'f', 0)), &rd));
+        f->addRow("새 수량", q);
+        f->addRow("새 가격", pr);
+
+        QDialogButtonBox* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &rd);
+        connect(bb, &QDialogButtonBox::accepted, &rd, &QDialog::accept);
+        connect(bb, &QDialogButtonBox::rejected, &rd, &QDialog::reject);
+
+        QVBoxLayout* l = new QVBoxLayout(&rd);
+        l->addLayout(f);
+        l->addWidget(bb);
+
+        if (rd.exec() == QDialog::Accepted)
+            m_krApi->reviseOrder(*o, q->value(), alignToTick(pr->value(), resolveTick(pr->value(), o->orderPrice, rtick)));
+    });
+
+    QPushButton* refreshBtn = new QPushButton("새로고침", &dlg);
+    connect(refreshBtn, &QPushButton::clicked, &dlg, [this]()
+    {
+        m_krApi->fetchBalance();
+        m_krApi->fetchOpenOrders();
+    });
+
+    QPushButton* closeBtn = new QPushButton("닫기", &dlg);
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    QLabel* note = new QLabel(
+        "※ 정정/취소는 표에서 주문을 선택한 뒤 누르세요.\n"
+        "※ 당일 매수/매도 수량은 잔고 기준이며, 체결 단가별 내역은 표시하지 않습니다.", &dlg);
+    note->setStyleSheet("color: gray;");
+
+    QHBoxLayout* btnRow = new QHBoxLayout();
+    btnRow->addWidget(reviseOrderBtn);
+    btnRow->addWidget(cancelOrderBtn);
+    btnRow->addWidget(refreshBtn);
+    btnRow->addStretch();
+    btnRow->addWidget(closeBtn);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(summary);
+    layout->addWidget(ordersLabel);
+    layout->addWidget(table);
+    layout->addWidget(note);
+    layout->addLayout(btnRow);
+
+    // 최신 상태로 갱신 (응답은 위 시그널로 들어온다)
+    m_krApi->fetchBalance();
+    m_krApi->fetchOpenOrders();
+
+    dlg.exec();
+}
+
 void MainWindow::tradeDialog(StockTableModel* model, int row, bool isBuy)
 {
     const QString symbol = model->symbolAt(row);
     const QString name = model->displayNameAt(row);
-    const double curPrice = model->currentPriceAt(row);
+    const double curPrice = currentPriceFor(model, row, symbol);
     const QString kind = isBuy ? "매수" : "매도";
 
     // 계좌번호 미설정 방어
@@ -762,10 +1583,10 @@ void MainWindow::tradeDialog(StockTableModel* model, int row, bool isBuy)
 
     QSpinBox* priceSpin = new QSpinBox(&dlg);
     priceSpin->setRange(0, 1000000000);
-    priceSpin->setSingleStep(10);
     priceSpin->setGroupSeparatorShown(true);
     priceSpin->setSuffix(" 원");
     priceSpin->setValue(static_cast<int>(curPrice));
+    applyTick(priceSpin, model->tickSizeAt(row), curPrice);
 
     connect(marketCheck, &QCheckBox::toggled, priceSpin, &QSpinBox::setDisabled);
 
@@ -958,12 +1779,13 @@ void MainWindow::onOpenOrdersClicked()
         q->setRange(1, o->possibleQty);
         q->setValue(o->possibleQty);
         q->setSuffix(" 주");
+        const double rtick = tickForSymbol(o->symbol);
         QSpinBox* p = new QSpinBox(&rd);
         p->setRange(0, 1000000000);
-        p->setSingleStep(10);
         p->setGroupSeparatorShown(true);
         p->setSuffix(" 원");
         p->setValue(static_cast<int>(o->orderPrice));
+        applyTick(p, rtick, o->orderPrice);
         QFormLayout* f = new QFormLayout();
         f->addRow("새 수량", q);
         f->addRow("새 가격", p);
@@ -974,7 +1796,7 @@ void MainWindow::onOpenOrdersClicked()
         l->addLayout(f);
         l->addWidget(bb);
         if (rd.exec() == QDialog::Accepted)
-            m_krApi->reviseOrder(*o, q->value(), p->value());
+            m_krApi->reviseOrder(*o, q->value(), alignToTick(p->value(), resolveTick(p->value(), o->orderPrice, rtick)));
     });
 
     QPushButton* closeBtn = new QPushButton("닫기", &dlg);

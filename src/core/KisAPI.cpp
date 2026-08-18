@@ -1,4 +1,4 @@
-#include "KisAPI.h"
+﻿#include "KisAPI.h"
 #include "Config.h"
 #include "NetworkUtils.h"
 #include <QJsonDocument>
@@ -258,6 +258,7 @@ void KisAPI::onBalanceReceived(QNetworkReply* reply)
     // output1: 보유종목 배열. 보유수량(hldg_qty) > 0 인 종목코드(pdno)만 수집
     QStringList symbols;
     QHash<QString, int> quantities;
+    QHash<QString, KisHoldingDetail> details;
     const QJsonArray holdings = obj["output1"].toArray();
     for (const QJsonValue& v : holdings)
     {
@@ -268,11 +269,27 @@ void KisAPI::onBalanceReceived(QNetworkReply* reply)
         {
             symbols << code;
             quantities.insert(code, qty);
+
+            KisHoldingDetail d;
+            d.symbol = code;
+            d.name = item["prdt_name"].toString();
+            d.holdQty = qty;
+            d.ordPsblQty = item["ord_psbl_qty"].toString().toInt();
+            d.todayBuyQty = item["thdt_buyqty"].toString().toInt();
+            d.todaySellQty = item["thdt_sll_qty"].toString().toInt();
+            d.prevBuyQty = item["bfdy_buy_qty"].toString().toInt();
+            d.prevSellQty = item["bfdy_sll_qty"].toString().toInt();
+            d.avgPrice = item["pchs_avg_pric"].toString().toDouble();
+            d.curPrice = item["prpr"].toString().toDouble();
+            d.evalPnl = item["evlu_pfls_amt"].toString().toDouble();
+            d.pnlRate = item["evlu_pfls_rt"].toString().toDouble();
+            details.insert(code, d);
         }
     }
 
     qDebug() << "KIS 보유종목 수신:" << symbols.size() << "개" << symbols;
     emit holdingQuantitiesReceived(quantities);
+    emit holdingDetailsReceived(details);
     emit holdingsReceived(symbols);
 }
 
@@ -609,6 +626,7 @@ void KisAPI::onStockReceived(QNetworkReply* reply)
     data.highPrice = output["stck_hgpr"].toString().toDouble();    // 고가
     data.lowPrice = output["stck_lwpr"].toString().toDouble();     // 저가
     data.openPrice = output["stck_oprc"].toString().toDouble();    // 시가
+    data.tickSize = output["aspr_unit"].toString().toDouble();     // 호가단위(틱)
 
     // 전일 종가는 계산해서 넣거나 다른 필드 참조 (stck_prpr - prdy_vrss)
     double change = output["prdy_vrss"].toString().toDouble(); // 전일대비

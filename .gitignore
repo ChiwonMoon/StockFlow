@@ -34,3 +34,7 @@ src/core/Config.h
 
 # GitHub 관련 폴더 무시
 .github/
+
+# 예약매도 스크립트 산출물 (토큰 캐시는 비밀값, 로그는 계좌 활동 기록)
+tools/.kis-token.json
+tools/logs/
